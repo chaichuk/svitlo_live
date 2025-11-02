@@ -1,0 +1,16 @@
+{
+  "domain": "svitlo_ua",
+  "name": "Svitlo UA Power Outages",
+  "version": "1.0.0",
+  "config_flow": true,
+  "documentation": "https://github.com/yourusername/Svitlo-UA-Power-Outages", 
+  "requirements": [
+    "beautifulsoup4>=4.12.0"
+  ],
+  "dependencies": [],
+  "codeowners": [
+    "@chaichuk"
+  ],
+  "iot_class": "cloud_polling",
+  "integration_type": "hub"
+}
