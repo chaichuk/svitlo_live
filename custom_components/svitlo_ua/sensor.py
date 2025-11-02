@@ -1,84 +1,111 @@
-"""Sensors for Svitlo UA integration."""
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import DEVICE_CLASS_TIMESTAMP
-
-from .const import DOMAIN
+"""Модуль датчиків (часові сенсори) інтеграції «Світло»."""
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from . import const
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up sensor entities for this entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data[const.DOMAIN][entry.entry_id]
     entities = []
+    entities.append(TimeToNextOutageSensor(coordinator))
     entities.append(NextOutageStartSensor(coordinator))
     entities.append(NextPowerOnSensor(coordinator))
-    entities.append(TimeToNextOutageSensor(coordinator))
     async_add_entities(entities)
 
-class SvitloUASensorBase(SensorEntity):
-    """Base class for Svitlo UA sensors."""
-    _attr_has_entity_name = True  # використовувати friendly_name з device класу
-
+class SvitloBaseSensor(CoordinatorEntity, SensorEntity):
+    """Базовий клас для сенсорів інтеграції 'Світло'."""
     def __init__(self, coordinator):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
+        # Визначення ідентифікатора девайсу (регіон+група)
+        region = coordinator.region
+        group = coordinator.group
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{coordinator.region}_{coordinator.group}")},
-            "name": f"Svitlo UA Power Outages ({coordinator.region})",
-            "manufacturer": "Svitlo UA",
-            "model": f"Outage Schedule {coordinator.region}"
+            "identifiers": {(const.DOMAIN, f"{region}-{group}")},
+            "name": f"Світло - {region} черга {group}",
+            "manufacturer": "Світло UA",
+            "model": "Outage Schedule"
         }
-        # device_info дозволяє згрупувати сенсори і календар в один пристрій
 
-    @property
-    def available(self) -> bool:
-        # Якщо coordinator.data є і не порожній – дані доступні
-        return self.coordinator.last_update_success and self.coordinator.data is not None
-
-    async def async_update(self):
-        # Не викликаємо вручну update, Coordinator сам оновлює
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        # При додаванні сенсора – підписуємось на оновлення координатора
-        self.coordinator.async_add_listener(self.async_write_ha_state)
-
-    async def async_will_remove_from_hass(self):
-        # При видаленні – відписуємось
-        self.coordinator.async_remove_listener(self.async_write_ha_state)
-
-class NextOutageStartSensor(SvitloUASensorBase):
-    """Sensor for the datetime of the next outage start."""
+class TimeToNextOutageSensor(SvitloBaseSensor):
+    """Датчик часу до наступного відключення."""
     def __init__(self, coordinator):
         super().__init__(coordinator)
-        self._attr_name = "Next outage start"
+        self._attr_name = "Час до наступного відключення"
+        self._attr_unique_id = f"{coordinator.region}_{coordinator.group}_time_to_next"
+
+    @property
+    def native_value(self):
+        # Обчислення хвилин до найближчого відключення
+        events = self.coordinator.data.get("events", [])
+        if not events:
+            return None
+        now = datetime.utcnow()
+        # Шукаємо найближчий івент ще не почався
+        next_event = None
+        for ev in events:
+            start = ev.get("start")
+            end = ev.get("end")
+            if start and start > now:
+                next_event = ev
+                break
+            if start and end and start <= now < end:
+                # якщо зараз евент в процесі - наступне відключення вже триває
+                return 0
+        if not next_event:
+            return None
+        # Розрахуємо різницю в хвилинах
+        diff = next_event["start"] - now
+        return int(diff.total_seconds() // 60)
+
+class NextOutageStartSensor(SvitloBaseSensor):
+    """Датчик часу початку наступного відключення."""
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator):
+        super().__init__(coordinator)
+        self._attr_name = "Початок наступного відключення"
         self._attr_unique_id = f"{coordinator.region}_{coordinator.group}_next_outage_start"
-        self._attr_device_class = DEVICE_CLASS_TIMESTAMP
 
     @property
     def native_value(self):
-        # Дата/час початку наступного відключення (або None якщо не заплановано)
-        return self.coordinator.data.get("next_outage_start") if self.coordinator.data else None
+        events = self.coordinator.data.get("events", [])
+        if not events:
+            return None
+        now = datetime.utcnow()
+        for ev in events:
+            start = ev.get("start")
+            end = ev.get("end")
+            if start and end and start <= now < end:
+                # Початок вже є, наступне відключення вже розпочалося
+                continue
+            if start and start > now:
+                return start
+        return None
 
-class NextPowerOnSensor(SvitloUASensorBase):
-    """Sensor for the datetime when power will be back on (next power on time)."""
+class NextPowerOnSensor(SvitloBaseSensor):
+    """Датчик часу відновлення електропостачання."""
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
     def __init__(self, coordinator):
         super().__init__(coordinator)
-        self._attr_name = "Next power on"
+        self._attr_name = "Кінець наступного відключення"
         self._attr_unique_id = f"{coordinator.region}_{coordinator.group}_next_power_on"
-        self._attr_device_class = DEVICE_CLASS_TIMESTAMP
 
     @property
     def native_value(self):
-        # Дата/час відновлення електропостачання (для найближчого відключення або поточного)
-        return self.coordinator.data.get("next_power_on") if self.coordinator.data else None
-
-class TimeToNextOutageSensor(SvitloUASensorBase):
-    """Sensor for minutes remaining to the next outage."""
-    def __init__(self, coordinator):
-        super().__init__(coordinator)
-        self._attr_name = "Time to next outage"
-        self._attr_unique_id = f"{coordinator.region}_{coordinator.group}_time_to_next_outage"
-        self._attr_unit_of_measurement = "min"
-
-    @property
-    def native_value(self):
-        # Кількість хвилин до наступного відключення (або None якщо не заплановано)
-        return self.coordinator.data.get("time_to_next_outage") if self.coordinator.data else None
+        events = self.coordinator.data.get("events", [])
+        if not events:
+            return None
+        now = datetime.utcnow()
+        # якщо зараз є відключення, покажіть час його завершення
+        for ev in events:
+            start = ev.get("start")
+            end = ev.get("end")
+            if start and end and start <= now < end:
+                return end
+        # якщо зараз світло є, визначити кінець наступного відключення
+        for ev in events:
+            start = ev.get("start")
+            end = ev.get("end")
+            if start and start > now:
+                return end
+        return None
