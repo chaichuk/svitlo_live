@@ -19,6 +19,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CLASS_MAP,
     DEFAULT_SCAN_INTERVAL,
+    REGION_QUEUE_MODE,  # <-- важливо
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,15 +33,10 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass = hass
         self.region: str = config[CONF_REGION]
         self.queue: str = config[CONF_QUEUE]
+        self.queue_mode: str = REGION_QUEUE_MODE.get(self.region, "DEFAULT")
 
         scan_seconds = int(config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
-
-        # Планувальник точного перемикання
-        self._unsub_precise = None  # type: ignore[assignment]
-
-        # Кеш розкладу (на випадок точного перемикання без мережі)
-        self._today_pack_cached: Optional[Tuple[date, list[str], list[str]]] = None
-        self._tomorrow_pack_cached: Optional[Tuple[date, list[str], list[str]]] = None
+        self._unsub_precise = None  # планувальник точного перемикання
 
         super().__init__(
             hass=hass,
@@ -50,10 +46,11 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Основне оновлення: фетч HTML і побудова payload."""
+        """Основне оновлення: фетч HTML і побудова payload (лише свіжі дані)."""
         url = f"https://svitlo.live/{self.region}"
-        polled_at = dt_util.utcnow().replace(microsecond=0).isoformat()  # час ОСТАННЬОГО ОПИТУВАННЯ
+        polled_at = dt_util.utcnow().replace(microsecond=0).isoformat()
 
+        # 1) HTTP
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=HEADERS, timeout=20) as resp:
@@ -63,14 +60,15 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as e:
             raise UpdateFailed(f"Network error: {e}") from e
 
+        # 2) Парсинг
         try:
-            today_pack, tomorrow_pack, source_last_modified = self.parse_queue(html, self.queue)
-            # Кешуємо актуальні пакети
-            self._today_pack_cached = today_pack
-            self._tomorrow_pack_cached = tomorrow_pack
+            today_pack, tomorrow_pack, source_last_modified = self.parse_queue(
+                html, self.queue, mode=self.queue_mode
+            )
         except Exception as e:
             raise UpdateFailed(f"Parse error: {e}") from e
 
+        # 3) Побудова даних
         payload = self._build_payload(
             today_pack=today_pack,
             tomorrow_pack=tomorrow_pack,
@@ -79,7 +77,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             source_last_modified=source_last_modified,
         )
 
-        # Плануємо точне оновлення на межі наступного 30-хв слоту
+        # 4) План точного оновлення
         self._schedule_precise_refresh(payload)
         return payload
 
@@ -96,19 +94,16 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         source_last_modified: Optional[str],
     ) -> dict[str, Any]:
         """Будує словник даних для сенсорів із двох таблиць (сьогодні/завтра)."""
-        today_date, hour_classes, halfhours = today_pack  # hour_classes: 24 значень on/off/f4/f5, halfhours: 48 значень on/off
+        today_date, hour_classes, halfhours = today_pack
 
         now_local = dt_util.now()
-        # Індекс поточного півгодинного слоту
         if now_local.date() != today_date:
             idx = 0
         else:
             idx = now_local.hour * 2 + (1 if now_local.minute >= 30 else 0)
 
-        # Поточний стан (on/off) із 30-хв масиву
         cur = halfhours[idx]
 
-        # Наступна зміна стану в межах 48-слотної доби
         nci = self.next_change_idx(halfhours, idx)
         next_change_hhmm = None
         if nci is not None:
@@ -116,23 +111,22 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             m = 30 if (nci % 2) else 0
             next_change_hhmm = f"{h:02d}:{m:02d}"
 
-        # Вираховуємо наступні ключові моменти (вирівняні до кордонів 00/30)
         next_on_at = self.find_next_at(["on"], today_date, halfhours, idx, tomorrow_pack)
         next_off_at = self.find_next_at(["off"], today_date, halfhours, idx, tomorrow_pack)
 
         data: dict[str, Any] = {
             "queue": self.queue,
             "date": today_date.isoformat(),
-            "now_status": cur,                      # "on"/"off" з 30-хв сітки
+            "now_status": cur,                       # "on"/"off"
             "now_halfhour_index": idx,
-            "next_change_at": next_change_hhmm,     # "HH:MM" (локальний)
-            "today_24h_classes": hour_classes,      # оригінальні класи по годинах: on/off/f4/f5
-            "today_48half": halfhours,              # 48 значень "on"/"off"
-            "updated": updated,                     # час останнього ОПИТУВАННЯ (UTC ISO)
+            "next_change_at": next_change_hhmm,      # "HH:MM" (локальний)
+            "today_24h_classes": hour_classes,
+            "today_48half": halfhours,
+            "updated": updated,                      # UTC ISO
             "source": source_url,
-            "source_last_modified": source_last_modified,  # як є, інформативно
-            "next_on_at": next_on_at,               # ISO UTC або None
-            "next_off_at": next_off_at,             # ISO UTC або None
+            "source_last_modified": source_last_modified,
+            "next_on_at": next_on_at,                # UTC ISO або None
+            "next_off_at": next_off_at,              # UTC ISO або None
         }
 
         if tomorrow_pack:
@@ -148,8 +142,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return data
 
     def _schedule_precise_refresh(self, data: dict[str, Any]) -> None:
-        """Ставимо таймер на точний перехід до наступного півгодинного слоту за графіком."""
-        # Скасувати попереднє планування, якщо було
+        """Ставимо таймер на наступний півгодинний перехід — лише мережевий refresh."""
         if self._unsub_precise:
             self._unsub_precise()
             self._unsub_precise = None
@@ -163,7 +156,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             base_day = datetime.fromisoformat(base_date_iso).date()
             hh, mm = [int(x) for x in next_change_hhmm.split(":")]
 
-            candidate = dt_util.now().replace(
+            now_local = dt_util.now()
+            candidate = now_local.replace(
                 year=base_day.year,
                 month=base_day.month,
                 day=base_day.day,
@@ -172,27 +166,11 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 second=0,
                 microsecond=0,
             )
-            # Якщо вже в минулому (зсунулися дати/години) — перенести на +1 день
-            if candidate <= dt_util.now():
+            if candidate <= now_local:
                 candidate = candidate + timedelta(days=1)
 
             @callback
             def _precise_tick(_now) -> None:
-                # 1) миттєво оновлюємо з КЕШУ (без мережі), updated НЕ змінюємо
-                if self._today_pack_cached:
-                    payload = self._build_payload(
-                        today_pack=self._today_pack_cached,
-                        tomorrow_pack=self._tomorrow_pack_cached,
-                        updated=self.data.get("updated")
-                        if self.data
-                        else dt_util.utcnow().replace(microsecond=0).isoformat(),
-                        source_url=self.data.get("source") if self.data else "",
-                        source_last_modified=self.data.get("source_last_modified")
-                        if self.data
-                        else None,
-                    )
-                    self.async_set_updated_data(payload)
-                # 2) слідом просимо мережевий refresh (він уже оновить updated)
                 self.async_request_refresh()
 
             self._unsub_precise = async_track_point_in_time(self.hass, _precise_tick, candidate)
@@ -214,39 +192,35 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return ["on", "on"]
         if cls == "off":
             return ["off", "off"]
-        if cls == "f4":  # перша половина off (00–29), друга on (30–59)
+        if cls == "f4":  # 00–29 off, 30–59 on
             return ["off", "on"]
-        if cls == "f5":  # перша половина on (00–29), друга off (30–59)
+        if cls == "f5":  # 00–29 on, 30–59 off
             return ["on", "off"]
-        # Якщо раптом несподіваний клас — трактуємо як on-on
         return ["on", "on"]
 
     @staticmethod
-    def parse_queue(html: str, queue_id: str):
-        """Парсимо блок div#chergraX.Y, беремо 2 таблиці (сьогодні/завтра)."""
-        soup = BeautifulSoup(html, "html.parser")
-        tab = soup.find("div", id=f"chergra{queue_id}")
-        if not tab:
-            raise ValueError(f"Queue {queue_id} not found (div#chergra{queue_id})")
+    def parse_queue(html: str, queue_id: str, *, mode: str = "DEFAULT"):
+        """
+        Повертає (today_pack, tomorrow_pack, source_last_modified) для вказаного queue_id.
 
-        tables = tab.select("table.graph")
-        if not tables:
-            raise ValueError("No tables found in queue tab")
+        Режими:
+        - DEFAULT: шукаємо div#chergra{queue_id} (класичні підчерги X.Y)
+        - CHERGA_NUM: Вінницька — шукаємо таблиці з написом "Черга N" (без підчерг)
+        - GRUPA_NUM: Чернівецька/Донецька — "Група N"
+        """
+        soup = BeautifulSoup(html, "html.parser")
 
         def parse_table(table) -> Tuple[date, list[str], list[str]]:
             rows = table.select("tbody tr")
             if len(rows) < 2:
                 raise ValueError("Table structure unexpected (need 2 rows)")
 
-            # Заголовок: дата + 24 колонки часу
             header_tds = rows[0].find_all("td")
             date_str = header_tds[0].get_text(strip=True)
             day = datetime.strptime(date_str, "%d.%m.%Y").date()
 
-            # Рядок 'Черга X.Y' із 24 cell по годинах
             cells = rows[1].find_all("td")[1:]
             if len(cells) != 24:
-                # інколи сайт може показати менше/більше — страховка
                 cells = cells[:24]
 
             hour_classes: list[str] = []
@@ -254,21 +228,62 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cls = next((c for c in td.get("class", []) if c in CLASS_MAP), "on")
                 hour_classes.append(cls)
 
-            # Розкладаємо 24 години → 48 півгодинок
             halfhours: list[str] = []
             for cls in hour_classes:
                 halfhours.extend(SvitloCoordinator.halfhours_from_hour_class(cls))
 
             return day, hour_classes, halfhours
 
+        tables: list = []
+
+        if mode == "DEFAULT":
+            tab = soup.find("div", id=f"chergra{queue_id}")
+            if not tab:
+                raise ValueError(f"Queue {queue_id} not found (div#chergra{queue_id})")
+            tables = tab.select("table.graph")
+        else:
+            label_prefix = "Черга" if mode == "CHERGA_NUM" else "Група"
+            wanted = f"{label_prefix} {queue_id}".strip()
+
+            candidates = soup.select("table.graph")
+            found_container = None
+            for t in candidates:
+                rows = t.select("tbody tr")
+                if len(rows) < 2:
+                    continue
+                first_cell = rows[1].find_all("td")[0].get_text(strip=True)
+                if first_cell == wanted:
+                    found_container = t.find_parent(attrs={"id": True}) or t.find_parent("div")
+                    if found_container:
+                        tables = found_container.select("table.graph")
+                    else:
+                        tables = [t]
+                    break
+
+            if not tables:
+                raise ValueError(f"{wanted}: table not found")
+
+        if not tables:
+            raise ValueError("No tables found for selected queue/group")
+
         today_pack = parse_table(tables[0])
         tomorrow_pack = parse_table(tables[1]) if len(tables) > 1 else None
 
-        # meta name="last-modified" (може бути, беремо як інформаційний)
+        # Діагностика
+        try:
+            tday, _, thalf = today_pack
+            _LOGGER.debug("Parsed TODAY %s: off_count=%s", tday, thalf.count("off"))
+            if tomorrow_pack:
+                d2, _, h2 = tomorrow_pack
+                first_off = next((i for i, v in enumerate(h2) if v == "off"), None)
+                _LOGGER.debug("Parsed TOMORROW %s: first_off_idx=%s", d2, first_off)
+        except Exception as e:
+            _LOGGER.warning("Parse debug log failed: %s", e)
+
+        # last-modified (як є)
         meta = soup.find("meta", attrs={"name": "last-modified"})
         source_last_modified = meta["content"] if meta and meta.has_attr("content") else None
         if source_last_modified and "-" in source_last_modified and ":" in source_last_modified:
-            # Перекладаємо у UTC ISO, якщо це локальний час
             try:
                 dt_local = datetime.fromisoformat(source_last_modified.replace(" ", "T"))
                 source_last_modified = dt_util.as_utc(dt_local).replace(microsecond=0).isoformat()
@@ -298,26 +313,38 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> Optional[str]:
         """
         Повертає UTC ISO час НАСТУПНОГО target-стану ("on"/"off"),
-        ВИРІВНЯНИЙ до межі півгодини (:00 або :30) від поточного слоту.
+        і точно прив’язує дату: якщо позиція у залишку СЬОГОДНІ — беремо дату сьогодні,
+        якщо перелізло у ЗАВТРА — беремо дату завтра.
         """
-        # Починаємо пошук від НАСТУПНОГО півгодинного слоту
-        seq = today_half[idx + 1 :] + today_half[: idx + 1]
-        seq2 = list(seq)
+        # послідовність пошуку
+        today_tail = today_half[idx + 1:]  # залишок сьогоднішнього дня
+        seq = list(today_tail)
+        tomorrow_date = None
         if tomorrow_pack:
-            _, _, tomorrow_half = tomorrow_pack
-            seq2.extend(tomorrow_half)
+            tomorrow_date, _, tomorrow_half = tomorrow_pack
+            seq.extend(tomorrow_half)
 
-        pos = next((i for i, s in enumerate(seq2) if s in target_states), None)
+        # знайти першу позицію потрібного стану
+        pos = next((i for i, s in enumerate(seq) if s in target_states), None)
         if pos is None:
             return None
 
-        # Вирівнюємо "базу" до початку поточного слоту локального часу
-        now_local = dt_util.now().replace(second=0, microsecond=0)
-        minute_block_start = 0 if now_local.minute < 30 else 30
-        base_aligned = now_local.replace(minute=minute_block_start)
+        # визначаємо, у якій даті знаходиться ця позиція
+        if pos < len(today_tail):
+            # всередині сьогодні
+            base_local_midnight = dt_util.start_of_local_day(
+                datetime.combine(base_date, datetime.min.time())
+            )
+            minutes_from_base = (idx + 1 + pos) * 30
+            next_local = base_local_midnight + timedelta(minutes=minutes_from_base)
+        else:
+            # це вже завтра
+            if not tomorrow_date:
+                return None
+            base_local_midnight = dt_util.start_of_local_day(
+                datetime.combine(tomorrow_date, datetime.min.time())
+            )
+            minutes_into_tomorrow = (pos - len(today_tail)) * 30
+            next_local = base_local_midnight + timedelta(minutes=minutes_into_tomorrow)
 
-        # Додаємо (pos+1) слотів по 30 хвилин
-        next_local = base_aligned + timedelta(minutes=(pos + 1) * 30)
-
-        # Віддаємо як ISO в UTC (HA сам покаже у локалі)
         return dt_util.as_utc(next_local).isoformat()
