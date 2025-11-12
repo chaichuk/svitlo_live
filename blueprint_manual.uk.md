@@ -1,7 +1,13 @@
 # Svitlo Live — Посібник із налаштування блупрінта
 
 **Призначення:**  
-Надсилає push-сповіщення, коли змінюється розклад електропостачання для вашого регіону та черги.
+[Сповіщення про зміну розкладу](custom_components/svitlo_live/blueprints/automation/svitlo_schedule_changed_notification.yaml)
+
+Надсилає push-сповіщення, коли змінюється розклад відключень для вашого регіону та черги на поточну добу.
+
+[Сповіщення про оновлення графіків](custom_components/svitlo_live/blueprints/automation/svitlo_schedule_updated_notification.yaml)
+
+Надсилає push-сповіщення, коли змінюється розклад відключень для вашого регіону та черги на поточну та наступну добу.
 
 > Усе робиться через інтерфейс Home Assistant — жодного YAML не потрібно.
 
@@ -22,7 +28,7 @@
 ## 1️⃣ Створення автоматизації з блупрінта
 
 1. Перейдіть у **Налаштування → Автоматизації та Сцени → + Створити автоматизацію**.  
-2. Оберіть блупрінт **“Svitlo Live: Сповіщення про зміну розкладу”**.
+2. Оберіть блупрінт **“Svitlo Live: Сповіщення про зміну розкладу”** або **“Svitlo Live: Сповіщення про оновлення графіків”**.
 
 ![image](https://github.com/chaichuk/svitlo_live/blob/main/docs/1.Create%20automation%20from%20blueprint.png)
 
@@ -71,6 +77,8 @@
    `input_text.svitlo_live_hash_<region>_<queue>`).
 
 ![image](https://github.com/chaichuk/svitlo_live/blob/main/docs/5.Create%20text%20helper%20for%20hash.png)
+
+3. В розширених налаштуваннях помічника змініть його довжину на 255 символів (100 символів за умовчанням).
 
 > Якщо helper уже існує, просто виберіть його зі списку.
 
