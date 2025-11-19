@@ -1,8 +1,8 @@
 blueprint:
   name: Svitlo.live region notification (Chat + Svitlobot)
   description: >
-    Надсилає push, коли розклад електропостачання змінюється в Telegram
-    і оновлює розклад Svitlobot.
+    Надсилає повідомлення в Telegram при зміні розкладу,
+    та оновлює розклад Svitlobot.
     Необхідно створити rest_command.svitlobot_update_schedule.
       rest_command:
         svitlobot_update_schedule:
@@ -12,12 +12,11 @@ blueprint:
           method: GET
           timeout: 30
   domain: automation
-  source_url: https://github.com/chaichuk/svitlo_live
 
   input:
     calendar_entity:
       name: Календар Svitlo Live
-      description: "Calendar with the Svitlo.live outages for this region/queue."
+      description: "Календар для цього регіону"
       selector:
         entity:
           domain: calendar
@@ -33,9 +32,7 @@ blueprint:
           device_class: timestamp
 
     storage_helper:
-      name: Helper для збереження
-      description: >
-        Виберіть Text helper для збереження стану цього календаря. Довжина 255 символів.
+      name: Helper для збереження хешу розкладу Довжина 255 символів.
         Краще у вигляді svitlo_live_region_queue_schedule
       selector:
         entity:
@@ -61,7 +58,6 @@ blueprint:
 
     channel_key:
       name: Svitlobot ключ каналу
-      description: "Channel key для rest_command.svitlobot_update_schedule."
       selector:
         text:
 
@@ -72,6 +68,13 @@ blueprint:
         - "-1000000000000"
       selector:
         object:
+
+    region_image_url:
+      name: URL зображення регіону
+      description: "Якщо вказано — буде надіслано фото з цим URL і підписом-графіком. Можна звідси https://github.com/Baskerville42/outage-data-ua/tree/main/images"
+      default: ""
+      selector:
+        text:
 
     notification_title:
       name: Заголовок повідомлення
@@ -120,7 +123,8 @@ actions:
         {% else %}
           {{ cal_entity.split('.')[1] | replace('_', ' ') | title }}
         {% endif %}
-
+  - variables:
+      region_image_path: !input region_image_url
   - action: calendar.get_events
     target:
       entity_id: "{{ cal_entity }}"
@@ -194,34 +198,62 @@ actions:
             {{ raw_events | selectattr('local_date', 'equalto', today_str) | list }}
           events_tomorrow: >
             {{ raw_events | selectattr('local_date', 'equalto', tomorrow_str) | list }}
-          body: |-
-            📅 Сьогодні ({{ now().strftime('%d.%m.%Y') }})
-            {% if events_today -%}
-            {% for e in events_today -%}
-            {% set s1 = as_datetime(e.start).astimezone() -%}
-            {% set e1 = as_datetime(e.end).astimezone() -%}
-            🔻 {{ s1.strftime('%H:%M') }} ━ {{ e1.strftime('%H:%M') }}
-            {% endfor -%}
-            {% else -%}
-            ⚡ світло без відключень
-            {% endif %}
-            {% if events_tomorrow -%}
-            📅 Завтра ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
-            {% for e in events_tomorrow -%}
-            {% set s2 = as_datetime(e.start).astimezone() -%}
-            {% set e2 = as_datetime(e.end).astimezone() -%}
-            🔻 {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
-            {% endfor -%}
-            {% endif -%}
+          body: "{% set d = now() %}\n{% set weekday_map = {\n  0: 'Понеділок',\n  1:
+            'Вівторок',\n  2: 'Середа',\n  3: 'Четвер',\n  4: \"П'ятниця\",\n  5: 'Субота',\n
+            \ 6: 'Неділя'\n} %}\n{% set weekday_today = weekday_map[d.weekday()] %}\n{%
+            set weekday_tomorrow = weekday_map[(d + timedelta(days=1)).weekday()] %}\n{%
+            set d_tomorrow = (d + timedelta(days=1)).strftime('%d.%m') %}\n\U0001F516
+            Графік на *сьогодні*, {{ d.strftime('%d.%m') }} ({{ weekday_today }})\n{%
+            if events_today -%}\n{% for e in events_today -%}\n{% set s1 = as_datetime(e.start).astimezone()
+            -%}\n{% set e1 = as_datetime(e.end).astimezone() -%}\n{% set diff = e1 -
+            s1 -%}\n{% set total_minutes = (diff.total_seconds() // 60) | int -%}\n{%
+            set hours = (total_minutes // 60) | int -%}\n{% set minutes = (total_minutes
+            % 60) | int -%}\n{% if hours > 0 and minutes > 0 -%}\n{% set dur = hours
+            ~ ' год ' ~ minutes ~ ' хв' -%}\n{% elif hours > 0 -%}\n{% set dur = hours
+            ~ ' год' -%}\n{% else -%}\n{% set dur = minutes ~ ' хв' -%}\n{% endif -%}\n\U0001F53B
+            `{{ s1.strftime('%H:%M') }} ━ {{ e1.strftime('%H:%M') }}` ({{ dur }})\n{%
+            endfor -%}\n{% else -%}\n⚡ світло без відключень\n{% endif -%}\n{% if events_tomorrow
+            %}\n\U0001F516 Графік на *завтра*, {{ d_tomorrow }} ({{ weekday_tomorrow
+            }})\n{% for e in events_tomorrow -%}\n{% set s2 = as_datetime(e.start).astimezone()
+            -%}\n{% set e2 = as_datetime(e.end).astimezone() -%}\n{% set diff = e2 -
+            s2 -%}\n{% set total_minutes = (diff.total_seconds() // 60) | int -%}\n{%
+            set hours = (total_minutes // 60) | int -%}\n{% set minutes = (total_minutes
+            % 60) | int -%}\n{% if hours > 0 and minutes > 0 -%}\n{% set dur = hours
+            ~ ' год ' ~ minutes ~ ' хв' -%}\n{% elif hours > 0 -%}\n{% set dur = hours
+            ~ ' год' -%}\n{% else -%}\n{% set dur = minutes ~ ' хв' -%}\n{% endif -%}\n\U0001F53B
+            `{{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}` ({{ dur }})\n{%
+            endfor -%}\n{% endif -%}"
+      # відправка фото або тексту
+      - alias: URL for image exist
+        if:
+          - condition: template
+            value_template: >-
+              {% if region_image_path is defined and region_image_path is not none and region_image_path != '' %}
+                True
+              {% else %}
+                False
+              {% endif %}
+        then:
+          - action: telegram_bot.send_photo
+            data:
+              verify_ssl: true
+              parse_mode: markdown
+              target: !input telegram_chat_ids
+              disable_notification: false
+              caption: "{{ body }}"
+              url: "{{ region_image_path }}"
+            response_variable: message_id
+        else:
+          - action: telegram_bot.send_message
+            data:
+              target: !input telegram_chat_ids
+              message: "{{ body }}"
+              disable_notification: true
+              title: "{{ title_text }}"
+              parse_mode: markdown
+            response_variable: message_id
 
-      - action: telegram_bot.send_message
-        data:
-          target: !input telegram_chat_ids
-          message: "{{ body }}"
-          disable_notification: true
-          title: "{{ title_text }}"
-        response_variable: message_id
-
+      # запис message_id
       - variables:
           updated_list: >
             {{ [[ message_id.chats[0].chat_id, message_id.chats[0].message_id ]] }}
@@ -232,13 +264,16 @@ actions:
         data:
           value: "{{ updated_list | tojson }}"
 
+      # запис хешу розкладу
       - action: input_text.set_value
         target:
           entity_id: "{{ storage_helper }}"
         data:
           value: "{{ schedule_signature[-255:] }}"
 
-      - if:
+      # оновлення Svitlobot
+      - alias: Svitlobot KEY provided
+        if:
           - condition: template
             value_template: >-
               {% if channelKey is defined and channelKey is not none and channelKey != '' %}
