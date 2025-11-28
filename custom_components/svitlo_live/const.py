@@ -48,5 +48,8 @@ REGION_QUEUE_MODE = {
     "donetska-oblast": "GRUPA_NUM",
 }
 
-# Публічний URL твого Cloudflare Worker (без секретів)
+# Основний API (для всіх, крім Київської області)
 API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev"
+
+# Спеціальний API для Київської, Одеської, Дніпропетровської області
+DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"

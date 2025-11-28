@@ -5,7 +5,7 @@
 
 An integration for **Home Assistant** that displays the current electricity supply status for your region and queue, based on data from [svitlo.live](https://svitlo.live).
 
-This is the **new version (v2.0.0)**, which now fully relies on the **official API** instead of HTML parsing.  
+**New version (v2)**, which now mainly relies on the **API provided by svitlo.live** instead of HTML parsing.
 The integration has been completely rebuilt — faster, more secure, and much lighter on the server.
 
 ---
@@ -36,7 +36,8 @@ The integration consists of two layers:
 
 2. **`SvitloCoordinator` (coordinator.py)**  
    A dedicated coordinator for each region/queue.  
-   - Retrieves data from the shared hub (`api_hub`) without additional network requests.  
+   - Retrieves data from the shared hub (`api_hub`) without additional network requests.
+   - Smart Proxy Selection: Automatically switches between the standard API (for most regions) and the specialized DTEK proxy (for Kyiv, Odesa, and Dnipro) to ensure maximum reliability.
    - Processes half-hour slots and builds power states (`on/off`).  
    - Schedules **precise entity state changes at the exact time of power switch** — without calling the API again.
 
@@ -55,6 +56,9 @@ Access to `https://svitlo.live/api/asistant.php` is handled via a secure **Cloud
 - stores the `x-api-key` privately in its environment,
 - accepts keyless requests from Home Assistant,
 - forwards the request to `svitlo.live` and returns the JSON response.
+
+For DTEK Regions (Kyiv, Odesa, Dnipro):
+The integration uses a dedicated, highly reliable data source proxy (dtek-api) that aggregates data directly from official DTEK websites, ensuring up-to-date schedules even when standard aggregators might lag.
 
 This allows users to install the integration safely through HACS without exposing any private credentials.
 
@@ -79,13 +83,14 @@ This allows users to install the integration safely through HACS without exposin
 | ⚠️ **Sensor** | `Next outage` | Next power-off time (if currently on) |
 | 🔄 **Sensor** | `Schedule updated` | Last successful API refresh |
 | 📅 **Calendar** | `calendar.svitlo_<region>_<queue>` |  “💡 Electricity available” events (Kyiv local time) |
-
+| ⏳ **Minutes to grid connection** | Shows the number of minutes left until the **next power restoration**. Updates every 30 seconds. Visible only when the power is **off**. |
+| ⏱ **Minutes to outage** | Shows the number of minutes left until the **next power cut**. Updates every 30 seconds. Visible only when the power is **on**. |
 ---
 
 ## 🌍 Supported Regions
 
 All regions of Ukraine (except temporarily unavailable ones, e.g., Kherson).  
-For Vinnytsia — format “Queue N”; for Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
+For Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
 
 ---
 
@@ -118,56 +123,6 @@ action:
       title: "⚡ Power outage"
       message: "Electricity has been turned off in queue 3.2"
 ```
-
----
-
-## 🧾 Changes in Version 2.0.0
-
-| Category | Description |
-|-----------|-------------|
-| 🧠 **New architecture** | Centralized API requests through a shared `api_hub` |
-| ⚡ **Precise synchronization** | Entity states update at exact scheduled times without extra API calls |
-| ⏱ **Fixed refresh interval** | One API call every 15 minutes shared across all entries |
-| 🌍 **Localization** | Full Ukrainian and English translation support |
-
----
-## 🆕 What's New in v2.1.0
-## 🔔 Automated Notifications (Blueprint)
-
-The integration **automatically installs a blueprint** for daily electricity schedule notifications via push to your mobile devices.
-
-### Setup:
-
-1. Go to **Settings → Automations & Scenes**
-2. Click **Create Automation → Start with a blueprint**
-3. Select **"Svitlo Live: Power Schedule Notification"**
-4. Configure:
-   - 📅 **Svitlo Live Calendar** (automatically filtered to show only Svitlo Live calendars)
-   - ⏰ **Notification time** (default: 07:00)
-   - 📱 **Mobile devices** (select one or multiple devices)
-   - ✏️ **Custom message title** (optional)
-
-The blueprint will be available immediately after installing the integration via HACS!
-
-**Example notification:**
-```
-⚡Electricity Schedule
-
-📅 Schedule for today (09.11.2025):
-
-💡 04:00 - 07:30
-💡 09:00 - 11:00
-💡 14:30 - 18:00
-```
-## ⚙️ New Functional Sensors (v2.2.0)
-
-This update introduces **two new live-updating sensors** that dynamically count down the time until the next scheduled event — without making any extra API requests.
-
-| Sensor | Description |
-|---------|--------------|
-| ⏳ **Minutes to grid connection** | Shows the number of minutes left until the **next power restoration**. Updates every 30 seconds. Visible only when the power is **off**. |
-| ⏱ **Minutes to outage** | Shows the number of minutes left until the **next power cut**. Updates every 30 seconds. Visible only when the power is **on**. |
----
 
 ## 💡 Author
 

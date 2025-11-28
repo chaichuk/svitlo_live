@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 from datetime import datetime, timedelta, date, time
 from typing import Any, Optional, Callable
 
@@ -14,6 +15,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     API_URL,
+    DTEK_API_URL,
     CONF_REGION,
     CONF_QUEUE,
     DEFAULT_SCAN_INTERVAL,
@@ -24,15 +26,15 @@ _LOGGER = logging.getLogger(__name__)
 # Таймзона України
 TZ_KYIV = dt_util.get_time_zone("Europe/Kyiv")
 
-# Спільний кеш: скільки секунд перевикористовуємо JSON, щоби уникнути дублів на старті
-MIN_REUSE_SECONDS = 120
+# Спільний кеш: скільки секунд перевикористовуємо JSON
+MIN_REUSE_SECONDS = 300
 
-# Блок оновлень навколо опівночі (за Києвом)
-MIDNIGHT_BLOCK_MINUTES = 5  # 00:00–00:04
+# Блок оновлень навколо опівночі
+MIDNIGHT_BLOCK_MINUTES = 10
 
 
 class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Тягне JSON з проксі 1 раз на весь HA і будує дані для конкретного region/queue."""
+    """Тягне JSON з API і будує дані для конкретного region/queue."""
 
     def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
         self.hass = hass
@@ -45,8 +47,12 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "_shared_api" not in shared:
             shared["_shared_api"] = {
                 "lock": asyncio.Lock(),
+                # Кеш для загального API
                 "last_json": None,
                 "last_json_utc": None,
+                # Кеш для твого DTEK API
+                "last_json_dtek": None,
+                "last_json_utc_dtek": None,
             }
         self._shared_api = shared["_shared_api"]
 
@@ -60,11 +66,24 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
+        # --- ВИЗНАЧАЄМО РЕЖИМ ---
+        # Список регіонів, які ми беремо з ВАШОГО воркера
+        dtek_regions = {"kiivska-oblast", "odeska-oblast", "dnipropetrovska-oblast"}
+        
+        is_dtek_mode = (self.region in dtek_regions)
+        
+        target_url = DTEK_API_URL if is_dtek_mode else API_URL
+        
+        # Вибираємо ключі кешу в залежності від режиму, щоб не плутати дані
+        cache_key_json = "last_json_dtek" if is_dtek_mode else "last_json"
+        cache_key_utc = "last_json_utc_dtek" if is_dtek_mode else "last_json_utc"
+
         # 1) Спільний кеш
         now_utc = dt_util.utcnow()
         shared = self._shared_api
-        last_json = shared.get("last_json")
-        last_json_utc: Optional[datetime] = shared.get("last_json_utc")
+        
+        last_json = shared.get(cache_key_json)
+        last_json_utc: Optional[datetime] = shared.get(cache_key_utc)
 
         should_reuse = (
             last_json is not None
@@ -74,8 +93,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if not should_reuse:
             async with shared["lock"]:
-                last_json = shared.get("last_json")
-                last_json_utc = shared.get("last_json_utc")
+                last_json = shared.get(cache_key_json)
+                last_json_utc = shared.get(cache_key_utc)
+                
                 should_reuse = (
                     last_json is not None
                     and last_json_utc is not None
@@ -83,36 +103,53 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
                 if not should_reuse:
-                    # -------- MIDNIGHT GUARD: 00:00–00:04 Europe/Kyiv --------
+                    # -------- MIDNIGHT GUARD --------
                     now_kyiv = dt_util.now(TZ_KYIV)
                     if now_kyiv.hour == 0 and now_kyiv.minute < MIDNIGHT_BLOCK_MINUTES:
                         if last_json is None:
-                            # Старт рівно опівночі без кешу – взагалі не ліземо в API
                             raise UpdateFailed(
-                                "Midnight guard active (00:00–00:04 Europe/Kyiv) "
-                                "and no cached data available yet"
+                                "Midnight guard active and no cached data available yet"
                             )
-
-                        _LOGGER.debug(
-                            "Midnight guard: 00:00–00:%02d Europe/Kyiv, "
-                            "reusing cached JSON from %s without new API call",
-                            MIDNIGHT_BLOCK_MINUTES - 1,
-                            last_json_utc,
-                        )
-                        # Просто використовуємо last_json, не роблячи новий запит
+                        _LOGGER.debug("Midnight guard active, reusing cached data")
                     else:
-                        # -------- Звичайний фетч --------
+                        # -------- ФЕТЧ З ПОТРІБНОГО URL --------
                         try:
                             session = async_get_clientsession(self.hass)
-                            async with session.get(API_URL, timeout=30) as resp:
+                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK" if is_dtek_mode else "STD")
+                            
+                            async with session.get(target_url, timeout=30) as resp:
                                 if resp.status != 200:
-                                    raise UpdateFailed(f"HTTP {resp.status} for {API_URL}")
-                                last_json = await resp.json(content_type=None)
-                                shared["last_json"] = last_json
-                                shared["last_json_utc"] = dt_util.utcnow()
-                                _LOGGER.debug("Fetched API once for all entries (%s)", API_URL)
+                                    raise UpdateFailed(f"HTTP {resp.status} for {target_url}")
+                                
+                                raw_response = await resp.json(content_type=None)
+                                
+                                # ОБРОБКА ВІДПОВІДІ
+                                if is_dtek_mode:
+                                    # Ваш воркер повертає { "body": "stringified_json", ... }
+                                    # Треба дістати body і розпарсити
+                                    body_str = raw_response.get("body")
+                                    if not body_str:
+                                        # Фолбек: якщо раптом воркер повернув звичайний JSON (на майбутнє)
+                                        if "regions" in raw_response:
+                                            final_data = raw_response
+                                        else:
+                                            raise UpdateFailed("DTEK Worker response missing 'body' field")
+                                    else:
+                                        try:
+                                            final_data = json.loads(body_str)
+                                        except json.JSONDecodeError as err:
+                                            raise UpdateFailed(f"Failed to parse DTEK body JSON: {err}")
+                                else:
+                                    # Стандартний API віддає чистий JSON
+                                    final_data = raw_response
+
+                                # Зберігаємо в кеш
+                                last_json = final_data
+                                shared[cache_key_json] = last_json
+                                shared[cache_key_utc] = dt_util.utcnow()
+                                
                         except Exception as e:
-                            raise UpdateFailed(f"Network error: {e}") from e
+                            raise UpdateFailed(f"Network error ({target_url}): {e}") from e
 
         # 2) Побудова payload
         try:
@@ -134,13 +171,13 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         region_obj = next((r for r in api.get("regions", []) if r.get("cpu") == self.region), None)
         if not region_obj:
-            raise ValueError(f"Region {self.region} not found in API")
+            raise ValueError(f"Region {self.region} not found in API response")
 
         schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
         slots_today_map: dict[str, int] = schedule.get(date_today) or {}
         slots_tomorrow_map: dict[str, int] = schedule.get(date_tomorrow) or {}
 
-        # >>> ЛОГІКА nosched (нема розкладу на сьогодні)
+        # >>> ЛОГІКА nosched
         has_any_slots = any(v in (1, 2) for v in slots_today_map.values())
         if not has_any_slots:
             base_day = (
@@ -155,7 +192,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_change_at": None,
                 "today_48half": [],
                 "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-                "source": API_URL,
+                "source": API_URL, # Технічно тут може бути DTEK_URL, але це поле інформативне
                 "next_on_at": None,
                 "next_off_at": None,
             }
@@ -225,11 +262,10 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return data
 
     # ---------------------------------------------------------------------
-    # Планувальник точного оновлення
+    # Планувальник точного оновлення (без змін)
     # ---------------------------------------------------------------------
 
     def _localize_kyiv(self, d: datetime) -> datetime:
-        """Коректно локалізує naive datetime до Europe/Kyiv з урахуванням DST."""
         if d.tzinfo is not None:
             return d.astimezone(TZ_KYIV)
         localize = getattr(TZ_KYIV, "localize", None)
@@ -242,7 +278,6 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._unsub_precise:
                 self._unsub_precise()
                 self._unsub_precise = None
-            _LOGGER.debug("No schedule for %s/%s today — precise tick not scheduled", self.region, self.queue)
             return
 
         if self._unsub_precise:
@@ -272,17 +307,12 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.async_create_task(self.async_request_refresh())
 
             self._unsub_precise = async_track_point_in_utc_time(self.hass, _tick, candidate_utc)
-            _LOGGER.debug(
-                "Scheduled precise tick for %s/%s at %s (Kyiv) / %s (UTC)",
-                self.region, self.queue, candidate_kyiv.isoformat(), candidate_utc.isoformat(),
-            )
-            _LOGGER.debug("Now UTC: %s", dt_util.utcnow().isoformat())
 
         except Exception as e:
             _LOGGER.debug("Failed to schedule precise refresh: %s", e)
 
     # ---------------------------------------------------------------------
-    # Утиліти
+    # Утиліти (без змін)
     # ---------------------------------------------------------------------
 
     @staticmethod
