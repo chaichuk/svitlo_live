@@ -5,7 +5,7 @@
 
 An integration for **Home Assistant** that displays the current electricity supply status for your region and queue, based on data from [svitlo.live](https://svitlo.live).
 
-This is the **new version (v2.0.0)**, which now fully relies on the **official API** instead of HTML parsing.  
+**New version (v2)**, which now mainly relies on the **API provided by svitlo.live** instead of HTML parsing.
 The integration has been completely rebuilt — faster, more secure, and much lighter on the server.
 
 ---
@@ -36,7 +36,8 @@ The integration consists of two layers:
 
 2. **`SvitloCoordinator` (coordinator.py)**  
    A dedicated coordinator for each region/queue.  
-   - Retrieves data from the shared hub (`api_hub`) without additional network requests.  
+   - Retrieves data from the shared hub (`api_hub`) without additional network requests.
+   - Smart Proxy Selection: Automatically switches between the standard API (for most regions) and the specialized DTEK proxy (for Kyiv, Odesa, and Dnipro) to ensure maximum reliability.
    - Processes half-hour slots and builds power states (`on/off`).  
    - Schedules **precise entity state changes at the exact time of power switch** — without calling the API again.
 
@@ -55,6 +56,9 @@ Access to `https://svitlo.live/api/asistant.php` is handled via a secure **Cloud
 - stores the `x-api-key` privately in its environment,
 - accepts keyless requests from Home Assistant,
 - forwards the request to `svitlo.live` and returns the JSON response.
+
+For DTEK Regions (Kyiv, Odesa, Dnipro):
+The integration uses a dedicated, highly reliable data source proxy (dtek-api) that aggregates data directly from official DTEK websites, ensuring up-to-date schedules even when standard aggregators might lag.
 
 This allows users to install the integration safely through HACS without exposing any private credentials.
 
@@ -85,7 +89,7 @@ This allows users to install the integration safely through HACS without exposin
 ## 🌍 Supported Regions
 
 All regions of Ukraine (except temporarily unavailable ones, e.g., Kherson).  
-For Vinnytsia — format “Queue N”; for Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
+For Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
 
 ---
 
