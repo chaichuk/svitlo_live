@@ -1,6 +1,6 @@
 blueprint:
-  name: "Svitlo Live: Сповіщення про оновлення графіків"
-  description: "Надсилає push коли оновлюється графік відключення електропостачання сьогодні або завтра"
+  name: "Svitlo Live: Сповіщення + Telegram"
+  description: "Надсилає push та Telegram повідомлення, коли оновлюється графік відключення."
   domain: automation
   source_url: https://github.com/chaichuk/svitlo_live
 
@@ -14,19 +14,26 @@ blueprint:
 
     schedule_updated_sensor:
       name: Сенсор оновлення розкладу
-      description: "Оберіть sensor 'Schedule updated' для цього регіону (автоматично фільтрується)"
+      description: "Оберіть sensor 'Schedule updated' для цього регіону"
       selector:
         entity:
           domain: sensor
           integration: svitlo_live
 
     mobile_targets:
-      name: Мобільні пристрої
+      name: Мобільні пристрої (HA App)
       default: []
       selector:
         device:
           integration: mobile_app
           multiple: true
+
+    telegram_chat_id:
+      name: Telegram Chat ID
+      description: "Вкажіть ID чату або групи (для груп починається з -100...). Залиште пустим, якщо Telegram не потрібен."
+      default: ""
+      selector:
+        text:
 
     title_text:
       name: Заголовок
@@ -49,7 +56,7 @@ blueprint:
 
     text_output:
       name: Text helper для тексту розкладу
-      description: "Сюди буде записуватись готовий текст розкладу (для Markdown/Telegram)"
+      description: "Сюди буде записуватись готовий текст розкладу"
       selector:
         entity:
           domain: input_text
@@ -62,7 +69,6 @@ blueprint:
 
     send_on_first_run:
       name: Надсилати сповіщення при першому запуску
-      description: "Якщо увімкнено – сповіщення прийде навіть при першому запуску, коли попереднього підпису ще немає."
       default: true
       selector:
         boolean:
@@ -72,6 +78,7 @@ mode: restart
 variables:
   cal_entity: !input schedule_calendar
   mobile_targets: !input mobile_targets
+  telegram_chat_id: !input telegram_chat_id
   title_text: !input title_text
   location_name: !input location_name
   storage_helper: !input storage_helper
@@ -91,7 +98,7 @@ condition:
     before: "23:40:00"
 
 action:
-  # 1) Події з 00:00 сьогодні до 23:59:59 завтра
+  # 1) Отримуємо події
   - service: calendar.get_events
     target:
       entity_id: !input schedule_calendar
@@ -107,7 +114,6 @@ action:
           {{ r[k]['events'] | sort(attribute='start') }}
         {% else %}[]{% endif %}
 
-      # Компромісний надійний підпис: yymmddHHMM start+end для кожної події
       schedule_signature: >-
         {%- set ns = namespace(sig='') -%}
         {%- for e in raw_events -%}
@@ -151,6 +157,7 @@ action:
             {% endfor %}
             {{ ns.events }}
 
+          # Форматування для мобільного (Title + Message)
           body: >-
             📍 {{ location_name }}
 
@@ -178,6 +185,7 @@ action:
             {% endfor -%}
             {%- endif %}
 
+          # Форматування для Тексту/Telegram (повний текст)
           body_text: |-
             📍 {{ location_name }}
 
@@ -205,6 +213,7 @@ action:
             {% endfor -%}
             {%- endif %}
 
+      # 2.1) Сповіщення на телефони
       - repeat:
           for_each: !input mobile_targets
           sequence:
@@ -219,6 +228,18 @@ action:
                   tag: svitlo_changed
                   notification_icon: mdi:calendar-alert
 
+      # 2.2) Сповіщення в Telegram (якщо задано ID)
+      - if:
+          - condition: template
+            value_template: "{{ telegram_chat_id != '' }}"
+        then:
+          - service: telegram_bot.send_message
+            data:
+              target: !input telegram_chat_id
+              title: "{{ title_text }}"
+              message: "{{ body_text }}"
+
+      # 2.3) Persistent notification
       - if:
           - condition: template
             value_template: "{{ send_persistent_notification }}"
@@ -229,13 +250,14 @@ action:
               message: "{{ body }}"
               notification_id: svitlo_changed
 
+      # 2.4) Запис тексту в helper
       - service: input_text.set_value
         target:
           entity_id: !input text_output
         data:
           value: "{{ body_text }}"
 
-  # 4) Зберігаємо підпис (обрізання до 255 на випадок довгих днів)
+  # 4) Зберігаємо підпис
   - service: input_text.set_value
     target:
       entity_id: !input storage_helper
