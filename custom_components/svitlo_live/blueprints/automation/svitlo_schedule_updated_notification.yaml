@@ -239,7 +239,12 @@ action:
         then:
           - service: telegram_bot.send_message
             data:
-              target: !input telegram_chat_id
+              target: >-
+                {% if telegram_chat_id is string %}
+                  {{ telegram_chat_id.split(',') | map('trim') | list }}
+                {% else %}
+                  {{ telegram_chat_id }}
+                {% endif %}
               title: "{{ title_text }}"
               message: "{{ body_text }}"
 
