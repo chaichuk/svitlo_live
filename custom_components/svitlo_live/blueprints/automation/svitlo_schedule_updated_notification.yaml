@@ -30,7 +30,7 @@ blueprint:
 
     telegram_chat_id:
       name: Telegram Chat ID
-      description: "Вкажіть ID чату або групи (для груп починається з -100...). Залиште пустим, якщо Telegram не потрібен."
+      description: "Вкажіть ID чату або групи (для груп починається з -100...). Якщо необхідно декілька адресатів, вкажіть їх через кому. Залиште пустим, якщо Telegram не потрібен."
       default: ""
       selector:
         text:
@@ -239,7 +239,12 @@ action:
         then:
           - service: telegram_bot.send_message
             data:
-              target: !input telegram_chat_id
+              target: >-
+                {% if telegram_chat_id is string %}
+                  {{ telegram_chat_id.split(',') | map('trim') | list }}
+                {% else %}
+                  {{ telegram_chat_id }}
+                {% endif %}
               title: "{{ title_text }}"
               message: "{{ body_text }}"
 
