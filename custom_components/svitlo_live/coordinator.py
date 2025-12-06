@@ -16,6 +16,7 @@ from .const import (
     DOMAIN,
     API_URL,
     DTEK_API_URL,
+    POE_WEBSITE_URL,
     CONF_REGION,
     CONF_QUEUE,
     DEFAULT_SCAN_INTERVAL,
@@ -53,6 +54,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Кеш DTEK API
                 "last_json_dtek": None,
                 "last_json_utc_dtek": None,
+                # Кеш для POE (Полтавська область)
+                "last_json_poe": None,
+                "last_json_utc_poe": None,
             }
         self._shared_api = shared["_shared_api"]
 
@@ -78,14 +82,24 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "dnipro-dnem",
             "dnipro-cek"
         }
+        poe_regions = {"poltavska-oblast"}
         
-        is_dtek_mode = (self.region in dtek_regions)
-        
-        target_url = DTEK_API_URL if is_dtek_mode else API_URL
-        
-        # Вибираємо ключі кешу в залежності від режиму, щоб не плутати дані
-        cache_key_json = "last_json_dtek" if is_dtek_mode else "last_json"
-        cache_key_utc = "last_json_utc_dtek" if is_dtek_mode else "last_json_utc"
+        # Визначаємо режим провайдера та URL
+        if self.region in dtek_regions:
+            provider_mode = "dtek"
+            target_url = DTEK_API_URL
+            cache_key_json = "last_json_dtek"
+            cache_key_utc = "last_json_utc_dtek"
+        elif self.region in poe_regions:
+            provider_mode = "poe"
+            target_url = POE_WEBSITE_URL
+            cache_key_json = "last_json_poe"
+            cache_key_utc = "last_json_utc_poe"
+        else:
+            provider_mode = "standard"
+            target_url = API_URL
+            cache_key_json = "last_json"
+            cache_key_utc = "last_json_utc"
 
         # 1) Спільний кеш
         now_utc = dt_util.utcnow()
@@ -124,18 +138,21 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # -------- ФЕТЧ З ПОТРІБНОГО URL --------
                         try:
                             session = async_get_clientsession(self.hass)
-                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK+Yasno" if is_dtek_mode else "STD")
+                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK+Yasno" if is_dtek_mode else ("POE" if provider_mode == "poe" else "STD"))
                             
                             async with session.get(target_url, timeout=30) as resp:
                                 if resp.status != 200:
                                     raise UpdateFailed(f"HTTP {resp.status} for {target_url}")
                                 
-                                raw_response = await resp.json(content_type=None)
-                                
-                                # ОБРОБКА ВІДПОВІДІ
-                                if is_dtek_mode:
-                                    # Воркер повертає { "body": "stringified_json", ... }
-                                    # Треба дістати body і розпарсити
+                                # ОБРОБКА ВІДПОВІДІ залежно від провайдера
+                                if provider_mode == "poe":
+                                    # POE повертає HTML, треба парсити
+                                    html_content = await resp.text()
+                                    final_data = self._parse_poe_html(html_content)
+                                    
+                                elif provider_mode == "dtek":
+                                    # DTEK воркер повертає { "body": "stringified_json", ... }
+                                    raw_response = await resp.json(content_type=None)
                                     body_str = raw_response.get("body")
                                     if not body_str:
                                         # Фолбек: якщо раптом воркер повернув звичайний JSON (на майбутнє)
@@ -150,6 +167,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                             raise UpdateFailed(f"Failed to parse DTEK body JSON: {err}")
                                 else:
                                     # Стандартний API віддає чистий JSON
+                                    raw_response = await resp.json(content_type=None)
                                     final_data = raw_response
 
                                 # Зберігаємо в кеш
@@ -169,6 +187,153 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # 3) Точний тик
         self._schedule_precise_refresh(payload)
         return payload
+
+    # ---------------------------------------------------------------------
+    # POE HTML Parser
+    # ---------------------------------------------------------------------
+
+    def _parse_poe_html(self, html: str) -> dict[str, Any]:
+        """Parse HTML from POE (poe.pl.ua) and convert to standard API format."""
+        from bs4 import BeautifulSoup
+        import re
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Визначаємо дати (сьогодні і завтра)
+        now_kyiv = dt_util.now(TZ_KYIV)
+        today = now_kyiv.date()
+        tomorrow = today + timedelta(days=1)
+        
+        # Мапа українських місяців
+        uk_months = {
+            'січня': 1, 'лютого': 2, 'березня': 3, 'квітня': 4,
+            'травня': 5, 'червня': 6, 'липня': 7, 'серпня': 8,
+            'вересня': 9, 'жовтня': 10, 'листопада': 11, 'грудня': 12
+        }
+        
+        # Шукаємо секції .gpvinfodetail
+        sections = soup.find_all(class_='gpvinfodetail')
+        
+        schedules_by_date = {}  # {date_str: {queue: {time: state}}}
+        
+        for section in sections:
+            # Витягуємо дату з тексту секції
+            section_text = section.get_text()
+            date_match = re.search(r'(\d+)\s+(\w+)\s+(\d{4})', section_text)
+            
+            if not date_match:
+                continue
+            
+            day, month_name, year = date_match.groups()
+            month_num = uk_months.get(month_name.lower())
+            
+            if not month_num:
+                continue
+            
+            # Створюємо дату
+            try:
+                section_date = date(int(year), month_num, int(day))
+            except ValueError:
+                continue
+            
+            # Визначаємо чи це сьогодні або завтра
+            if section_date != today and section_date != tomorrow:
+                continue
+            
+            date_str = section_date.isoformat()
+            
+            # Шукаємо таблицю в цій секції
+            table = section.find('table')
+            if not table:
+                continue
+            
+            rows = table.find_all('tr')
+            if len(rows) < 4:  # Потрібно мінімум: заголовок, час "з", час "по", дані
+                continue
+            
+            # Пропускаємо перші 3 рядки (заголовки та часи)
+            # Рядок 1: "№ черги / підчерги" | "Години доби"
+            # Рядок 2: "з 00:00" | "з 01:00" | ... (24 комірки)
+            # Рядок 3: "по 01:00" | "по 02:00" | ... (24 комірки)
+            # Рядки 4+: дані по чергах
+            
+            # Обробляємо рядки з даними (починаючи з 4-го рядка, індекс 3)
+            for row in rows[3:]:
+                cells = row.find_all(['td', 'th'])
+                if len(cells) < 26:  # Мінімум: черга + підчерга + 24 години
+                    continue
+                
+                # Перша комірка: номер черги (може бути "1 черга", "2 черга" і т.д.)
+                # Друга комірка: підчерга (1 або 2)
+                # Решта 24 комірки: години (по 2 півгодини на кожну)
+                
+                queue_cell = cells[0].get_text(strip=True)
+                subqueue_cell = cells[1].get_text(strip=True)
+                
+                # Витягуємо номер черги
+                queue_match = re.search(r'(\d+)', queue_cell)
+                if not queue_match:
+                    continue
+                
+                queue_num = queue_match.group(1)
+                subqueue_num = subqueue_cell.strip()
+                
+                # Формуємо ідентифікатор черги (наприклад, "1.1", "3.2")
+                queue_id = f"{queue_num}.{subqueue_num}"
+                
+                # Ініціалізуємо розклад для цієї черги
+                if date_str not in schedules_by_date:
+                    schedules_by_date[date_str] = {}
+                
+                if queue_id not in schedules_by_date[date_str]:
+                    schedules_by_date[date_str][queue_id] = {}
+                
+                # Обробляємо 24 години (комірки з індексу 2)
+                for hour in range(24):
+                    cell_idx = 2 + hour
+                    if cell_idx >= len(cells):
+                        break
+                    
+                    cell = cells[cell_idx]
+                    cell_class = ' '.join(cell.get('class', []))
+                    
+                    # light_1 = світло є (ON)
+                    # light_2 або light_3 = відключення (OFF)
+                    is_on = 'light_1' in cell_class
+                    is_off = 'light_2' in cell_class or 'light_3' in cell_class
+                    
+                    state = 1 if is_on else (2 if is_off else 0)
+                    
+                    # Додаємо обидва півгодинні слоти для цієї години
+                    schedules_by_date[date_str][queue_id][f"{hour:02d}:00"] = state
+                    schedules_by_date[date_str][queue_id][f"{hour:02d}:30"] = state
+        
+        # Формуємо відповідь у стандартному форматі API
+        date_today_str = today.isoformat()
+        date_tomorrow_str = tomorrow.isoformat()
+        
+        # Об'єднуємо розклади для всіх черг
+        queues_schedule = {}
+        
+        for queue_id in set(
+            list(schedules_by_date.get(date_today_str, {}).keys()) +
+            list(schedules_by_date.get(date_tomorrow_str, {}).keys())
+        ):
+            queues_schedule[queue_id] = {
+                date_today_str: schedules_by_date.get(date_today_str, {}).get(queue_id, {}),
+                date_tomorrow_str: schedules_by_date.get(date_tomorrow_str, {}).get(queue_id, {}),
+            }
+        
+        return {
+            "date_today": date_today_str,
+            "date_tomorrow": date_tomorrow_str,
+            "regions": [
+                {
+                    "cpu": self.region,
+                    "schedule": queues_schedule
+                }
+            ]
+        }
 
     # ---------------------------------------------------------------------
     # API -> payload
