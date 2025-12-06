@@ -288,9 +288,10 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if queue_id not in schedules_by_date[date_str]:
                     schedules_by_date[date_str][queue_id] = {}
                 
-                # Обробляємо 24 години (комірки з індексу 2)
-                for hour in range(24):
-                    cell_idx = 2 + hour
+                # Обробляємо 48 півгодинних слотів (комірки з індексу 2)
+                # Кожна комірка = 30 хвилин
+                for slot_idx in range(48):
+                    cell_idx = 2 + slot_idx
                     if cell_idx >= len(cells):
                         break
                     
@@ -304,9 +305,11 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     
                     state = 1 if is_on else (2 if is_off else 0)
                     
-                    # Додаємо обидва півгодинні слоти для цієї години
-                    schedules_by_date[date_str][queue_id][f"{hour:02d}:00"] = state
-                    schedules_by_date[date_str][queue_id][f"{hour:02d}:30"] = state
+                    # Обчислюємо час для цього слоту
+                    hour = slot_idx // 2
+                    minute = 30 if (slot_idx % 2) else 0
+                    
+                    schedules_by_date[date_str][queue_id][f"{hour:02d}:{minute:02d}"] = state
         
         # Формуємо відповідь у стандартному форматі API
         date_today_str = today.isoformat()
