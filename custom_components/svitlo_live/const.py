@@ -13,24 +13,28 @@ DEFAULT_SCAN_INTERVAL = 900  # 15 хв
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
+CONF_OPERATOR = "operator"  # <-- Нова константа для вибору оператора
 
-# Оновлений список (Херсонська прибрана)
+# Оновлений список регіонів
 REGIONS = {
+    # --- Спеціальні регіони (через ваш проксі) ---
+    "kyiv": "м. Київ",
+    "dnipro-city": "м. Дніпро",  # Віртуальний регіон для UI, далі розпадається на ДнЕМ/ЦЕК
+    "lvivska-oblast": "Львівська область",
+    "kiivska-oblast": "Київська область",
+    "odeska-oblast": "Одеська область",
+    "dnipropetrovska-oblast": "Дніпропетровська область",
+    
+    # --- Стандартні регіони (svitlo.live) ---
     "cherkaska-oblast": "Черкаська область",
     "chernigivska-oblast": "Чернігівська область",
     "chernivetska-oblast": "Чернівецька область",
-    "dnipropetrovska-oblast": "Дніпропетровська область",
     "donetska-oblast": "Донецька область",
     "harkivska-oblast": "Харківська область",
-    # "hersonska-oblast": "Херсонська область",  # виключена
     "hmelnitska-oblast": "Хмельницька область",
     "ivano-frankivska-oblast": "Івано-Франківська область",
     "kirovogradska-oblast": "Кіровоградська область",
-    "kyiv": "Київ",
-    "kiivska-oblast": "Київська область",
-    "lvivska-oblast": "Львівська область",
     "mikolaivska-oblast": "Миколаївська область",
-    "odeska-oblast": "Одеська область",
     "poltavska-oblast": "Полтавська область",
     "rivnenska-oblast": "Рівненська область",
     "sumska-oblast": "Сумська область",
@@ -48,8 +52,8 @@ REGION_QUEUE_MODE = {
     "donetska-oblast": "GRUPA_NUM",
 }
 
-# Основний API (для всіх, крім Київської області)
+# Основний API (старий)
 API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev"
 
-# Спеціальний API для Київської, Одеської, Дніпропетровської області
+# Персональний API (Cloudflare Worker)
 DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"

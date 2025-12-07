@@ -27,10 +27,10 @@ _LOGGER = logging.getLogger(__name__)
 TZ_KYIV = dt_util.get_time_zone("Europe/Kyiv")
 
 # Спільний кеш: скільки секунд перевикористовуємо JSON
-MIN_REUSE_SECONDS = 300
+MIN_REUSE_SECONDS = 600
 
 # Блок оновлень навколо опівночі
-MIDNIGHT_BLOCK_MINUTES = 10
+MIDNIGHT_BLOCK_MINUTES = 20
 
 
 class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -47,10 +47,10 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "_shared_api" not in shared:
             shared["_shared_api"] = {
                 "lock": asyncio.Lock(),
-                # Кеш для загального API
+                # Кеш для загального API (svitlo.live)
                 "last_json": None,
                 "last_json_utc": None,
-                # Кеш для твого DTEK API
+                # Кеш DTEK API
                 "last_json_dtek": None,
                 "last_json_utc_dtek": None,
             }
@@ -68,7 +68,16 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         # --- ВИЗНАЧАЄМО РЕЖИМ ---
         # Список регіонів, які ми беремо з ВАШОГО воркера
-        dtek_regions = {"kiivska-oblast", "odeska-oblast", "dnipropetrovska-oblast"}
+        # Додано: Львів, Київ (місто), Дніпро (ДнЕМ/ЦЕК)
+        dtek_regions = {
+            "kiivska-oblast", 
+            "odeska-oblast", 
+            "dnipropetrovska-oblast",
+            "lvivska-oblast",
+            "kyiv",
+            "dnipro-dnem",
+            "dnipro-cek"
+        }
         
         is_dtek_mode = (self.region in dtek_regions)
         
@@ -115,7 +124,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # -------- ФЕТЧ З ПОТРІБНОГО URL --------
                         try:
                             session = async_get_clientsession(self.hass)
-                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK" if is_dtek_mode else "STD")
+                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK+Yasno" if is_dtek_mode else "STD")
                             
                             async with session.get(target_url, timeout=30) as resp:
                                 if resp.status != 200:
@@ -125,7 +134,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 
                                 # ОБРОБКА ВІДПОВІДІ
                                 if is_dtek_mode:
-                                    # Ваш воркер повертає { "body": "stringified_json", ... }
+                                    # Воркер повертає { "body": "stringified_json", ... }
                                     # Треба дістати body і розпарсити
                                     body_str = raw_response.get("body")
                                     if not body_str:
@@ -262,7 +271,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return data
 
     # ---------------------------------------------------------------------
-    # Планувальник точного оновлення (без змін)
+    # Планувальник точного оновлення
     # ---------------------------------------------------------------------
 
     def _localize_kyiv(self, d: datetime) -> datetime:
@@ -312,7 +321,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Failed to schedule precise refresh: %s", e)
 
     # ---------------------------------------------------------------------
-    # Утиліти (без змін)
+    # Утиліти
     # ---------------------------------------------------------------------
 
     @staticmethod

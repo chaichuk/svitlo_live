@@ -8,6 +8,8 @@ An integration for **Home Assistant** that displays the current electricity supp
 **New version (v2)**, which now mainly relies on the **API provided by svitlo.live** instead of HTML parsing.
 The integration has been completely rebuilt — faster, more secure, and much lighter on the server.
 
+**Further iterations of intergration was done due to unreliable data drom svitlo.live. Eventually integration now uses partialy self-hosted mini API for DTEK regions (Kyiv region, Dnipro region, Odesa region), Yasno (Kyiv city, Dnipro city), Lviv region.** 
+
 ---
 
 ## ⚙️ Main Features
@@ -37,7 +39,7 @@ The integration consists of two layers:
 2. **`SvitloCoordinator` (coordinator.py)**  
    A dedicated coordinator for each region/queue.  
    - Retrieves data from the shared hub (`api_hub`) without additional network requests.
-   - Smart Proxy Selection: Automatically switches between the standard API (for most regions) and the specialized DTEK proxy (for Kyiv, Odesa, and Dnipro) to ensure maximum reliability.
+   - Smart Proxy Selection: Automatically switches between the standard API (for most regions) and the specialized DTEK proxy (for Kyiv, Odesa, and Dnipro), Yasno (Kyiv, Dnipro), Lviv region to ensure maximum reliability.
    - Processes half-hour slots and builds power states (`on/off`).  
    - Schedules **precise entity state changes at the exact time of power switch** — without calling the API again.
 
@@ -91,6 +93,12 @@ This allows users to install the integration safely through HACS without exposin
 
 All regions of Ukraine (except temporarily unavailable ones, e.g., Kherson).  
 For Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
+
+Special Note for Dnipro: When selecting Dnipro City, you will be prompted to choose your electricity distribution system operator (DSO):
+
+ - Dnipro (DNEM) - Dnipro Grids (Дніпровські електромережі)
+
+ - Dnipro (CEK) - Central Energy Company (ЦЕК)
 
 ---
 
