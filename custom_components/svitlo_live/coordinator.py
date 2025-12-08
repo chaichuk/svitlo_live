@@ -138,7 +138,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         # -------- ФЕТЧ З ПОТРІБНОГО URL --------
                         try:
                             session = async_get_clientsession(self.hass)
-                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK+Yasno" if is_dtek_mode else ("POE" if provider_mode == "poe" else "STD"))
+                            _LOGGER.debug("Fetching API: %s (Mode: %s)", target_url, "DTEK+Yasno" if provider_mode == "dtek" else ("POE" if provider_mode == "poe" else "STD"))
                             
                             async with session.get(target_url, timeout=30) as resp:
                                 if resp.status != 200:
