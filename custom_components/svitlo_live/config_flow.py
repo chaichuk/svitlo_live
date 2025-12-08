@@ -113,7 +113,7 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             return self.async_create_entry(
                 title=title,
-                data={CONF_REGION: self._region_slug, CONF_QUEUE: queue, CONF_SCAN_INTERVAL: scan_interval}},
+                data={CONF_REGION: self._region_slug, CONF_QUEUE: queue, CONF_SCAN_INTERVAL: scan_interval},
                 options={},
             )
 

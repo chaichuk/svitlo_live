@@ -83,6 +83,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "dnipro-cek"
         }
         poe_regions = {"poltavska-oblast"}
+        poe_regions = {"poltavska-oblast"}
         
         # Визначаємо режим провайдера та URL
         if self.region in dtek_regions:
