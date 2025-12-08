@@ -13,6 +13,7 @@ DEFAULT_SCAN_INTERVAL = 900  # 15 хв
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
+CONF_SCAN_INTERVAL = "scan_interval"
 CONF_OPERATOR = "operator"  # <-- Нова константа для вибору оператора
 
 # Оновлений список регіонів
