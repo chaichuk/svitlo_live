@@ -10,6 +10,7 @@ from .const import (
     PLATFORMS,
     CONF_REGION,
     CONF_QUEUE,
+    CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
 )
 from .coordinator import SvitloCoordinator
@@ -28,11 +29,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Svitlo.live v2 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     
-    # Фіксований інтервал опитування (15 хв)
+    # Інтервал опитування (за замовчуванням 15 хв, або з налаштувань користувача)
     config = {
         CONF_REGION: entry.data[CONF_REGION],
         CONF_QUEUE: entry.data[CONF_QUEUE],
-        "scan_interval_seconds": DEFAULT_SCAN_INTERVAL,
+        "scan_interval_seconds": entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     }
     
     coordinator = SvitloCoordinator(hass, config)

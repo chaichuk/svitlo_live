@@ -6,7 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
 
-from .const import DOMAIN, CONF_REGION, CONF_QUEUE, REGIONS, REGION_QUEUE_MODE
+from .const import DOMAIN, CONF_REGION, CONF_QUEUE, CONF_SCAN_INTERVAL, REGIONS, REGION_QUEUE_MODE, DEFAULT_SCAN_INTERVAL
 
 REGION_SLUG_TO_UI: Dict[str, str] = dict(sorted(REGIONS.items(), key=lambda kv: kv[1]))
 REGION_UI_TO_SLUG: Dict[str, str] = {v: k for k, v in REGION_SLUG_TO_UI.items()}
@@ -57,18 +57,28 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             queue = user_input[CONF_QUEUE]
+            scan_interval = user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
             title = f"{region_ui} / {queue}"
             await self.async_set_unique_id(f"{region_slug}_{queue}")
             self._abort_if_unique_id_configured()
             return self.async_create_entry(
                 title=title,
-                data={CONF_REGION: region_slug, CONF_QUEUE: queue},
+                data={CONF_REGION: region_slug, CONF_QUEUE: queue, CONF_SCAN_INTERVAL: scan_interval},
                 options={},
             )
 
         data_schema = vol.Schema({
             vol.Required(CONF_QUEUE, default=default_queue): selector({
                 "select": {"options": queue_options, "mode": "dropdown"}
+            }),
+            vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): selector({
+                "number": {
+                    "min": 60,
+                    "max": 3600,
+                    "step": 60,
+                    "unit_of_measurement": "seconds",
+                    "mode": "box"
+                }
             })
         })
         return self.async_show_form(
@@ -114,12 +124,25 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             queue = user_input[CONF_QUEUE]
-            new_data = {**self.entry.data, CONF_REGION: region_slug, CONF_QUEUE: queue}
+            scan_interval = user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+            new_data = {**self.entry.data, CONF_REGION: region_slug, CONF_QUEUE: queue, CONF_SCAN_INTERVAL: scan_interval}
             return self.async_create_entry(title="", data=new_data, options=self.entry.options)
+
+        # Get current scan interval
+        current_scan_interval = self.entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
         data_schema = vol.Schema({
             vol.Required(CONF_QUEUE, default=default_queue): selector({
                 "select": {"options": q_options, "mode": "dropdown"}
+            }),
+            vol.Optional(CONF_SCAN_INTERVAL, default=current_scan_interval): selector({
+                "number": {
+                    "min": 60,
+                    "max": 3600,
+                    "step": 60,
+                    "unit_of_measurement": "seconds",
+                    "mode": "box"
+                }
             })
         })
         return self.async_show_form(

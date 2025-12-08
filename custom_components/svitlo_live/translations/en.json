@@ -13,7 +13,11 @@
         "title": "Select queue / group",
         "description": "Select your queue or group for {region}.",
         "data": {
-          "queue": "Queue / Group"
+          "queue": "Queue / Group",
+          "scan_interval": "Update interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to fetch new schedule data (60-3600 seconds, default: 900)"
         }
       }
     },
@@ -23,6 +27,28 @@
     "error": {
       "cannot_connect": "Cannot connect to API.",
       "unknown": "Unexpected error."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Change region",
+        "description": "Select a new region.",
+        "data": {
+          "region": "Region"
+        }
+      },
+      "details": {
+        "title": "Change queue / group and update interval",
+        "description": "Select your queue or group for {region}.",
+        "data": {
+          "queue": "Queue / Group",
+          "scan_interval": "Update interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to fetch new schedule data (60-3600 seconds, default: 900)"
+        }
+      }
     }
   }
 }
