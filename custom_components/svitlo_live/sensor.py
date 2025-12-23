@@ -18,23 +18,27 @@ async def async_setup_entry(
 ) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
     entities: list[SensorEntity] = [
-        SvitloStatusSensor(coordinator),                 # Grid ON / Grid OFF / No schedules / No data
-        SvitloNextGridConnectionSensor(coordinator),     # TIMESTAMP
-        SvitloNextOutageSensor(coordinator),             # TIMESTAMP
-        SvitloMinutesToGridConnection(coordinator),      # minutes (number) — автооновлення кожні 30с
-        SvitloMinutesToOutage(coordinator),              # minutes (number) — автооновлення кожні 30с
-        SvitloScheduleUpdatedSensor(coordinator),        # TIMESTAMP
+        SvitloStatusSensor(coordinator),
+        SvitloNextGridConnectionSensor(coordinator),
+        SvitloNextOutageSensor(coordinator),
+        SvitloMinutesToGridConnection(coordinator),
+        SvitloMinutesToOutage(coordinator),
+        SvitloScheduleUpdatedSensor(coordinator),
     ]
     async_add_entities(entities)
 
 
 class SvitloBaseEntity(CoordinatorEntity, SensorEntity):
+    # has_entity_name = True означає:
+    # 1. В UI назва буде короткою (напр. "Electricity")
+    # 2. ID буде генеруватись як: sensor.назва_девайсу_назва_сенсора
+    _attr_has_entity_name = True
+
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
 
     @property
     def available(self) -> bool:
-        # Ентіті завжди доступна; “нема даних” показуємо значенням/None.
         return True
 
     @property
@@ -50,12 +54,13 @@ class SvitloBaseEntity(CoordinatorEntity, SensorEntity):
 
 
 class SvitloStatusSensor(SvitloBaseEntity):
-    """Текстовий сенсор: Grid ON / Grid OFF / No schedules / No data."""
-    _attr_name = "Electricity"
+    """Головний сенсор статусу."""
+    _attr_name = "Electricity" 
     _attr_icon = "mdi:transmission-tower"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
+        # ❗ ПОВЕРНУЛИ СТАРИЙ ID (без v2_), щоб старі сенсори ожили
         self._attr_unique_id = f"svitlo_status_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -63,7 +68,11 @@ class SvitloStatusSensor(SvitloBaseEntity):
         data = getattr(self.coordinator, "data", None)
         if not data or not getattr(self.coordinator, "last_update_success", False):
             return "No data"
-        val = data.get("now_status")  # "on"/"off"/"unknown"/"nosched"
+        
+        if data.get("is_emergency"):
+            return "Emergency"
+
+        val = data.get("now_status")
         if val == "on":
             return "Grid ON"
         if val == "off":
@@ -73,16 +82,16 @@ class SvitloStatusSensor(SvitloBaseEntity):
         return "No data"
 
 
-# ---------- TIMESTAMP сенсори (як раніше) ----------
+# ---------- TIMESTAMP сенсори ----------
 
 class SvitloNextGridConnectionSensor(SvitloBaseEntity):
-    """TIMESTAMP: якщо зараз off → показує next_on_at; інакше None."""
     _attr_name = "Next grid connection"
     _attr_icon = "mdi:clock-check"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
+        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_next_grid_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -97,13 +106,13 @@ class SvitloNextGridConnectionSensor(SvitloBaseEntity):
 
 
 class SvitloNextOutageSensor(SvitloBaseEntity):
-    """TIMESTAMP: якщо зараз on → показує next_off_at; інакше None."""
     _attr_name = "Next Outage"
     _attr_icon = "mdi:clock-alert"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
+        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_next_off_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -117,23 +126,18 @@ class SvitloNextOutageSensor(SvitloBaseEntity):
         return dt_util.parse_datetime(iso_val) if iso_val else None
 
 
-# ---------- Нові числові сенсори (хвилини до події) з локальним таймером ----------
+# ---------- Числові сенсори ----------
 
 class _MinutesBase(SvitloBaseEntity):
-    """База для розрахунку хвилин до ISO-часу з автооновленням."""
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "min"
-
     _unsub_timer = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-
-        # Оновлюємо відображення кожні 30 секунд без жодних зовнішніх запитів
         @callback
         def _tick(now) -> None:
             self.async_write_ha_state()
-
         self._unsub_timer = async_track_time_interval(
             self.hass, _tick, timedelta(seconds=30)
         )
@@ -145,9 +149,6 @@ class _MinutesBase(SvitloBaseEntity):
             self._unsub_timer = None
 
     def _minutes_until(self, iso_utc: Optional[str]) -> Optional[int]:
-        """Повертає ceil різниці в хвилинах між target і поточним UTC.
-        Якщо target немає — None. Якщо вже настав — 0.
-        """
         if not iso_utc:
             return None
         target = dt_util.parse_datetime(iso_utc)
@@ -157,17 +158,17 @@ class _MinutesBase(SvitloBaseEntity):
         delta_s = (target - now_utc).total_seconds()
         if delta_s <= 0:
             return 0
-        mins = int((delta_s + 59) // 60)  # ceil для секунд → хвилини
+        mins = int((delta_s + 59) // 60)
         return mins
 
 
 class SvitloMinutesToGridConnection(_MinutesBase):
-    """Хвилини до підключення (лише коли зараз off)."""
     _attr_name = "Minutes to grid connection"
     _attr_icon = "mdi:timer-sand"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
+        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_min_to_on_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -181,12 +182,12 @@ class SvitloMinutesToGridConnection(_MinutesBase):
 
 
 class SvitloMinutesToOutage(_MinutesBase):
-    """Хвилини до відключення (лише коли зараз on)."""
     _attr_name = "Minutes to outage"
     _attr_icon = "mdi:timer-sand"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
+        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_min_to_off_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -199,16 +200,14 @@ class SvitloMinutesToOutage(_MinutesBase):
         return self._minutes_until(d.get("next_off_at"))
 
 
-# ---------- Updated timestamp for “Schedule Updated” ----------
-
 class SvitloScheduleUpdatedSensor(SvitloBaseEntity):
-    """Час останнього опитування як timestamp."""
     _attr_name = "Schedule Updated"
     _attr_icon = "mdi:update"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
+        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_updated_{coordinator.region}_{coordinator.queue}"
 
     @property
