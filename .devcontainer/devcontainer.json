@@ -1,0 +1,8 @@
+{
+  "image": "dcbr/hass-custom-devcontainer",
+  "postCreateCommand": "sudo -E container setup",
+  "postStartCommand": "sudo -E container launch",
+  "appPort": ["8123:8123", "4357:4357"],
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind"
+}
