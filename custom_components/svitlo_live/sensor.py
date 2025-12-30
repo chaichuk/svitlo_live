@@ -5,6 +5,7 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTime
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.event import async_track_time_interval
@@ -23,6 +24,8 @@ async def async_setup_entry(
         SvitloNextOutageSensor(coordinator),
         SvitloMinutesToGridConnection(coordinator),
         SvitloMinutesToOutage(coordinator),
+        SvitloNextGrid(coordinator),
+        SvitloNextOutage(coordinator),
         SvitloScheduleUpdatedSensor(coordinator),
     ]
     async_add_entities(entities)
@@ -124,6 +127,83 @@ class SvitloNextOutageSensor(SvitloBaseEntity):
             return None
         iso_val = d.get("next_off_at")
         return dt_util.parse_datetime(iso_val) if iso_val else None
+
+
+# ---------- DURATION сенсори ----------
+
+class SecondsRemainEntity(SvitloBaseEntity):
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_suggested_unit_of_measurement = UnitOfTime.HOURS
+    _attr_suggested_display_precision = 2
+
+    _unsub_timer = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        @callback
+        def _tick(now) -> None:
+            self.async_write_ha_state()
+
+        self._unsub_timer = async_track_time_interval(
+            self.hass, _tick, timedelta(seconds=10)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        await super().async_will_remove_from_hass()
+        if self._unsub_timer:
+            self._unsub_timer()
+            self._unsub_timer = None
+
+    def _seconds_until(self, iso_utc: Optional[str]) -> Optional[int]:
+        if not iso_utc:
+            return None
+        target = dt_util.parse_datetime(iso_utc)
+        if not target:
+            return None
+        now_utc = dt_util.utcnow()
+        delta_s = (target - now_utc).total_seconds()
+        if delta_s <= 0:
+            return 0
+        seconds = int(delta_s + 0.5)
+        return seconds
+
+
+class SvitloNextGrid(SecondsRemainEntity):
+    _attr_name = "Next grid"
+    _attr_icon = "mdi:lightbulb-on"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"svitlo_next_grid_{coordinator.region}_{coordinator.queue}"
+
+    @property
+    def native_value(self) -> Optional[int]:
+        d = getattr(self.coordinator, "data", None)
+        if not d or not getattr(self.coordinator, "last_update_success", False):
+            return None
+        if d.get("now_status") != "off":
+            return None
+        return self._seconds_until(d.get("next_on_at"))
+
+
+class SvitloNextOutage(SecondsRemainEntity):
+    _attr_name = "Next outage"
+    _attr_icon = "mdi:lightbulb-off"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"svitlo_next_outage_{coordinator.region}_{coordinator.queue}"
+
+    @property
+    def native_value(self) -> Optional[int]:
+        d = getattr(self.coordinator, "data", None)
+        if not d or not getattr(self.coordinator, "last_update_success", False):
+            return None
+        if d.get("now_status") != "on":
+            return None
+        return self._seconds_until(d.get("next_off_at"))
 
 
 # ---------- Числові сенсори ----------
