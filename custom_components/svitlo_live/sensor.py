@@ -24,7 +24,7 @@ async def async_setup_entry(
         SvitloNextOutageSensor(coordinator),
         SvitloMinutesToGridConnection(coordinator),
         SvitloMinutesToOutage(coordinator),
-        # Класи перейменовані, але ID всередині них збережені
+        # Нові класи з новими ID згідно з PR
         SvitloNextPowerOn(coordinator),
         SvitloNextPowerOff(coordinator),
         SvitloScheduleUpdatedSensor(coordinator),
@@ -33,9 +33,6 @@ async def async_setup_entry(
 
 
 class SvitloBaseEntity(CoordinatorEntity, SensorEntity):
-    # has_entity_name = True означає:
-    # 1. В UI назва буде короткою (напр. "Electricity")
-    # 2. ID буде генеруватись як: sensor.назва_девайсу_назва_сенсора
     _attr_has_entity_name = True
 
     def __init__(self, coordinator) -> None:
@@ -64,7 +61,6 @@ class SvitloStatusSensor(SvitloBaseEntity):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # ❗ ПОВЕРНУЛИ СТАРИЙ ID (без v2_), щоб старі сенсори ожили
         self._attr_unique_id = f"svitlo_status_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -95,7 +91,6 @@ class SvitloNextGridConnectionSensor(SvitloBaseEntity):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_next_grid_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -116,7 +111,6 @@ class SvitloNextOutageSensor(SvitloBaseEntity):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_next_off_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -130,7 +124,7 @@ class SvitloNextOutageSensor(SvitloBaseEntity):
         return dt_util.parse_datetime(iso_val) if iso_val else None
 
 
-# ---------- DURATION сенсори ----------
+# ---------- DURATION сенсори (Нова логіка з PR) ----------
 
 class SecondsRemainEntity(SvitloBaseEntity):
     _attr_device_class = SensorDeviceClass.DURATION
@@ -171,50 +165,46 @@ class SecondsRemainEntity(SvitloBaseEntity):
         return seconds
 
 
-# Тут ми застосували зміни з PR (нова назва класу), 
-# але залишили старий unique_id, щоб не ламати автоматизації
+# Тут нові класи і нові unique_id, як хотів автор PR
 class SvitloNextPowerOn(SecondsRemainEntity):
     _attr_name = "Next Power On"
     _attr_icon = "mdi:lightbulb-on"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # !!! ВАЖЛИВО: залишаємо 'svitlo_next_grid_', щоб зберегти сумісність
-        self._attr_unique_id = f"svitlo_next_grid_{coordinator.region}_{coordinator.queue}"
+        # Новий ID
+        self._attr_unique_id = f"svitlo_next_power_on_{coordinator.region}_{coordinator.queue}"
 
     @property
     def native_value(self) -> Optional[int]:
         d = getattr(self.coordinator, "data", None)
         if not d or not getattr(self.coordinator, "last_update_success", False):
             return None
-        # Логіка: показуємо час до включення, тільки якщо зараз вимкнено
         if d.get("now_status") != "off":
             return None
         return self._seconds_until(d.get("next_on_at"))
 
 
-# Аналогічно тут: клас і ім'я нові, але ID старий ('svitlo_next_outage_')
 class SvitloNextPowerOff(SecondsRemainEntity):
     _attr_name = "Next Power Off"
     _attr_icon = "mdi:lightbulb-off"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # !!! ВАЖЛИВО: залишаємо 'svitlo_next_outage_', щоб зберегти сумісність
-        self._attr_unique_id = f"svitlo_next_outage_{coordinator.region}_{coordinator.queue}"
+        # Новий ID
+        self._attr_unique_id = f"svitlo_next_power_off_{coordinator.region}_{coordinator.queue}"
 
     @property
     def native_value(self) -> Optional[int]:
         d = getattr(self.coordinator, "data", None)
         if not d or not getattr(self.coordinator, "last_update_success", False):
             return None
-        # Логіка: показуємо час до вимкнення, тільки якщо зараз увімкнено
         if d.get("now_status") != "on":
             return None
         return self._seconds_until(d.get("next_off_at"))
 
 
-# ---------- Числові сенсори (хвилини) ----------
+# ---------- Числові сенсори (хвилини - старі) ----------
 
 class _MinutesBase(SvitloBaseEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -256,7 +246,6 @@ class SvitloMinutesToGridConnection(_MinutesBase):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_min_to_on_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -275,7 +264,6 @@ class SvitloMinutesToOutage(_MinutesBase):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_min_to_off_{coordinator.region}_{coordinator.queue}"
 
     @property
@@ -295,7 +283,6 @@ class SvitloScheduleUpdatedSensor(SvitloBaseEntity):
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        # ❗ ПОВЕРНУЛИ СТАРИЙ ID
         self._attr_unique_id = f"svitlo_updated_{coordinator.region}_{coordinator.queue}"
 
     @property
