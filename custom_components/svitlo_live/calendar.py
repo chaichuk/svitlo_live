@@ -166,15 +166,12 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
                 tzinfo=TZ_KYIV
             )
 
-        # Конвертуємо в UTC, бо HA Calendar любить UTC
+        # Конвертуємо в UTC
         start_utc = dt_util.as_utc(start_local)
         end_utc = dt_util.as_utc(end_local)
 
-        # Оскільки ми використовуємо has_entity_name, назва пристрою вже буде в заголовку картки.
-        # Тому summary можемо зробити коротшим, або залишити як є.
-        # Для календаря summary відображається прямо на смужці події.
         return CalendarEvent(
-            summary="❌ Відключення", 
+            summary=f"{self._entry.title}: ❌ Відключення",
             start=start_utc,
             end=end_utc,
             description=f"Немає світла {start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')}",
