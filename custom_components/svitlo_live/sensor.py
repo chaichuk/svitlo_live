@@ -24,8 +24,8 @@ async def async_setup_entry(
         SvitloNextOutageSensor(coordinator),
         SvitloMinutesToGridConnection(coordinator),
         SvitloMinutesToOutage(coordinator),
-        SvitloNextGrid(coordinator),
-        SvitloNextOutage(coordinator),
+        SvitloNextPowerOn(coordinator),
+        SvitloNextPowerOff(coordinator),
         SvitloScheduleUpdatedSensor(coordinator),
     ]
     async_add_entities(entities)
@@ -170,13 +170,13 @@ class SecondsRemainEntity(SvitloBaseEntity):
         return seconds
 
 
-class SvitloNextGrid(SecondsRemainEntity):
-    _attr_name = "Next grid"
+class SvitloNextPowerOn(SecondsRemainEntity):
+    _attr_name = "Next Power On"
     _attr_icon = "mdi:lightbulb-on"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"svitlo_next_grid_{coordinator.region}_{coordinator.queue}"
+        self._attr_unique_id = f"svitlo_next_power_on_{coordinator.region}_{coordinator.queue}"
 
     @property
     def native_value(self) -> Optional[int]:
@@ -188,13 +188,13 @@ class SvitloNextGrid(SecondsRemainEntity):
         return self._seconds_until(d.get("next_on_at"))
 
 
-class SvitloNextOutage(SecondsRemainEntity):
-    _attr_name = "Next outage"
+class SvitloNextPowerOff(SecondsRemainEntity):
+    _attr_name = "Next Power Off"
     _attr_icon = "mdi:lightbulb-off"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"svitlo_next_outage_{coordinator.region}_{coordinator.queue}"
+        self._attr_unique_id = f"svitlo_next_power_off_{coordinator.region}_{coordinator.queue}"
 
     @property
     def native_value(self) -> Optional[int]:
