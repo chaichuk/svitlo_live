@@ -350,6 +350,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not region_obj:
             raise ValueError(f"Region {self.region} not found in API response")
 
+        # --- ЗЧИТУЄМО АВАРІЙНИЙ СТАТУС ---
+        is_emergency = region_obj.get("emergency", False)
+
         schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
         slots_today_map: dict[str, int] = schedule.get(date_today) or {}
         slots_tomorrow_map: dict[str, int] = schedule.get(date_tomorrow) or {}
@@ -369,9 +372,10 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_change_at": None,
                 "today_48half": [],
                 "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-                "source": API_URL, # Технічно тут може бути DTEK_URL, але це поле інформативне
+                "source": API_URL, 
                 "next_on_at": None,
                 "next_off_at": None,
+                "is_emergency": is_emergency, # Додаємо і сюди
             }
             if date_tomorrow and (schedule.get(date_tomorrow) or {}):
                 data_nosched["tomorrow_date"] = date_tomorrow
@@ -426,6 +430,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "source": API_URL,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
+            "is_emergency": is_emergency, # Додаємо у головний payload
         }
 
         if date_tomorrow and tomorrow_half:
