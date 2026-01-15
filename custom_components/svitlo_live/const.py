@@ -8,53 +8,78 @@ PLATFORMS: list[Platform] = [
     Platform.CALENDAR,
 ]
 
-# Фіксований інтервал опитування (сек)
-DEFAULT_SCAN_INTERVAL = 900  # 15 хв
+DEFAULT_SCAN_INTERVAL = 900
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
 CONF_OPERATOR = "operator"
 
-# --- 1. REGIONS: ЗАЛИШАЄМО СТАРІ КЛЮЧІ (це важливо для збереження історії) ---
+# --- 1. СПИСОК РЕГІОНІВ (Для UI) ---
+# Залишаємо старі ключі, щоб не ламати існуючі налаштування
 REGIONS = {
-    # Спеціальні
+    # Спеціальні / DTEK / Yasno
     "kyiv": "м. Київ",
-    "dnipro-city": "м. Дніпро", 
-
-    # Області (Старі ключі, як були у v2.x)
-    "harkivska-oblast": "Харківська область",      # Було harkivska
-    "hmelnitska-oblast": "Хмельницька область",    # Було hmelnitska
-    "chernigivska-oblast": "Чернігівська область", # Було chernigivska
-    "jitomirska-oblast": "Житомирська область",    # Було jitomirska
+    "dnipro-city": "м. Дніпро",
     
-    # Решта регіонів (ключі співпадають або не змінювались критично)
-    "cherkaska-oblast": "Черкаська область",
-    "chernivetska-oblast": "Чернівецька область",
-    "dnipropetrovska-oblast": "Дніпропетровська область",
-    "donetska-oblast": "Донецька область",
-    "ivano-frankivska-oblast": "Івано-Франківська область",
     "kiivska-oblast": "Київська область",
-    "kirovogradska-oblast": "Кіровоградська область",
-    "lvivska-oblast": "Львівська область",
-    "mikolaivska-oblast": "Миколаївська область",
     "odeska-oblast": "Одеська область",
+    "dnipropetrovska-oblast": "Дніпропетровська область",
+    "lvivska-oblast": "Львівська область",
+
+    # Нові регіони (в новому API)
+    "harkivska-oblast": "Харківська область",
     "poltavska-oblast": "Полтавська область",
+    "cherkaska-oblast": "Черкаська область",
+    "chernigivska-oblast": "Чернігівська область",
+    "hmelnitska-oblast": "Хмельницька область",
+    "ivano-frankivska-oblast": "Івано-Франківська область",
     "rivnenska-oblast": "Рівненська область",
-    "sumska-oblast": "Сумська область",
     "ternopilska-oblast": "Тернопільська область",
-    "vinnitska-oblast": "Вінницька область",
-    "volinska-oblast": "Волинська область",
     "zakarpatska-oblast": "Закарпатська область",
     "zaporizka-oblast": "Запорізька область",
+    "jitomirska-oblast": "Житомирська область",
+    "sumska-oblast": "Сумська область",
+
+    # Старі регіони (працюють тільки на старому API)
+    "vinnitska-oblast": "Вінницька область",
+    "volinska-oblast": "Волинська область",
+    "mikolaivska-oblast": "Миколаївська область",
+    "kirovogradska-oblast": "Кіровоградська область",
+    "chernivetska-oblast": "Чернівецька область",
+    "donetska-oblast": "Донецька область",
 }
 
-# --- 2. МАПА ПЕРЕКЛАДУ: Старий конфіг -> Новий API ---
+# --- 2. МАПА ТРАНСЛІТЕРАЦІЇ ---
+# Перекладаємо старі ключі з конфігу на правильні ключі для НОВОГО API.
+# Для старого API ці ключі не використовуються (там залишаються старі).
 API_REGION_MAP = {
     "harkivska-oblast": "kharkivska-oblast",
     "hmelnitska-oblast": "khmelnytska-oblast",
     "chernigivska-oblast": "chernihivska-oblast",
     "jitomirska-oblast": "zhytomyrska-oblast",
-    # Можна додати інші, якщо помітите невідповідність
+}
+
+# --- 3. СПИСОК РЕГІОНІВ ДЛЯ НОВОГО API ---
+# Якщо регіон (або його переклад) є в цьому списку -> йдемо на DTEK_API_URL
+# Інакше -> йдемо на OLD_API_URL
+NEW_API_REGIONS = {
+    "kyiv", "kiivska-oblast",
+    "odeska-oblast",
+    "dnipro-dnem", "dnipro-cek", "dnipropetrovska-oblast",
+    "lvivska-oblast",
+    # Нові з парсера
+    "kharkivska-oblast", # Вже правильна транслітерація
+    "poltavska-oblast",
+    "cherkaska-oblast",
+    "chernihivska-oblast",
+    "khmelnytska-oblast",
+    "ivano-frankivska-oblast",
+    "rivnenska-oblast",
+    "ternopilska-oblast",
+    "zakarpatska-oblast",
+    "zaporizka-oblast",
+    "zhytomyrska-oblast",
+    "sumska-oblast",
 }
 
 REGION_QUEUE_MODE = {
@@ -62,6 +87,6 @@ REGION_QUEUE_MODE = {
     "donetska-oblast": "GRUPA_NUM",
 }
 
-# Використовуємо лише новий API
-API_URL = "https://dtek-api.svitlo-proxy.workers.dev/" 
-# Старий URL можна залишити як константу про всяк випадок, але логіка тепер йде через єдиний
+# --- 4. ДВА API ---
+OLD_API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev"  # Для старих
+DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"    # Для нових
