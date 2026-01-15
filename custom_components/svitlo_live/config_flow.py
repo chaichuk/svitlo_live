@@ -6,14 +6,24 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers.selector import selector
 
-from .const import DOMAIN, CONF_REGION, CONF_QUEUE, REGIONS, REGION_QUEUE_MODE, CONF_OPERATOR
+from .const import (
+    DOMAIN, 
+    CONF_REGION, 
+    CONF_QUEUE, 
+    REGIONS, 
+    REGION_QUEUE_MODE, 
+    CONF_OPERATOR,
+    DEFAULT_SCAN_INTERVAL
+)
 
+# Створюємо допоміжні словники для UI
 REGION_SLUG_TO_UI: Dict[str, str] = dict(sorted(REGIONS.items(), key=lambda kv: kv[1]))
 REGION_UI_TO_SLUG: Dict[str, str] = {v: k for k, v in REGION_SLUG_TO_UI.items()}
 REGION_UI_LIST: List[str] = list(REGION_SLUG_TO_UI.values())
 REGION_UI_OPTIONS = [{"label": name, "value": name} for name in REGION_UI_LIST]
 
 def _queue_options_for_region(region_slug: str) -> Tuple[List[str], List[Dict[str, str]], str]:
+    """Повертає список черг залежно від режиму регіону."""
     mode = REGION_QUEUE_MODE.get(region_slug, "DEFAULT")
     
     if mode == "GRUPA_NUM":
@@ -38,6 +48,11 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._region_ui: str | None = None
         self._region_slug: str | None = None
         self._operator_slug: str | None = None 
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return SvitloOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
@@ -135,13 +150,56 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"region": desc_region},
         )
 
-    @callback
-    def async_get_options_flow(self, config_entry):
-        return SvitloOptionsFlow(config_entry)
 
 class SvitloOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, entry: config_entries.ConfigEntry):
-        self.entry = entry
+    """Обробка зміни налаштувань (шестерня)."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        return self.async_show_menu(step_id="init", menu_options=[])
+        """Manage the options."""
+        if user_input is not None:
+            # 1. Оновлюємо дані
+            new_data = self.config_entry.data.copy()
+            new_data.update(user_input)
+
+            # 2. Формуємо новий заголовок
+            region_slug = new_data[CONF_REGION]
+            new_queue = new_data[CONF_QUEUE]
+            
+            region_name = REGIONS.get(region_slug, region_slug)
+            # Спрощена логіка назв для Дніпра (можна розширити як було вище)
+            if region_slug == "dnipro-dnem": region_name = "Дніпро (ДнЕМ)"
+            elif region_slug == "dnipro-cek": region_name = "Дніпро (ЦЕК)"
+
+            new_title = f"{region_name} / {new_queue}"
+
+            # 3. Зберігаємо
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data,
+                title=new_title
+            )
+            return self.async_create_entry(title="", data={})
+
+        # --- Підготовка форми ---
+        region_slug = self.config_entry.data[CONF_REGION]
+        current_queue = self.config_entry.data.get(CONF_QUEUE)
+
+        # Отримуємо варіанти черг
+        _, queue_options, _ = _queue_options_for_region(region_slug)
+
+        # Показуємо ТІЛЬКИ вибір черги (без інтервалу)
+        schema = vol.Schema({
+            vol.Required(CONF_QUEUE, default=current_queue): selector({
+                "select": {"options": queue_options, "mode": "dropdown"}
+            }),
+        })
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            description_placeholders={"region": REGIONS.get(region_slug, region_slug)}
+        )
