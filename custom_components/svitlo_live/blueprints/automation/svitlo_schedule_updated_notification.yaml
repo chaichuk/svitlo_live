@@ -1,5 +1,5 @@
 blueprint:
-  name: "Svitlo Live: Розумні сповіщення (Anti-Spam)"
+  name: "Svitlo Live: Розумні сповіщення"
   description: "Надсилає push та Telegram повідомлення про оновлення графіків АБО введення екстрених відключень."
   domain: automation
   source_url: https://github.com/chaichuk/svitlo_live
