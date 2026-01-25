@@ -1,9 +1,9 @@
 blueprint:
-  name: "Svitlo Live: Сповіщення + Telegram"
-  description: "Надсилає push та Telegram повідомлення про оновлення графіків АБО введення екстрених відключень. Має вбудовану затримку 50 хв на скасування аварії."
+  name: "Svitlo Live: Розумні сповіщення"
+  description: "Надсилає push та Telegram повідомлення про оновлення графіків АБО введення екстрених відключень."
   domain: automation
   source_url: https://github.com/chaichuk/svitlo_live
-
+  
   input:
     schedule_calendar:
       name: Календар Svitlo Live
@@ -14,7 +14,6 @@ blueprint:
 
     schedule_updated_sensor:
       name: Сенсор оновлення розкладу
-      description: "Оберіть sensor 'Schedule updated' для цього регіону"
       selector:
         entity:
           domain: sensor
@@ -22,7 +21,6 @@ blueprint:
 
     emergency_sensor:
       name: Сенсор аварійних відключень
-      description: "Оберіть binary_sensor 'Emergency outages' (якщо є)"
       default: {}
       selector:
         entity:
@@ -39,7 +37,6 @@ blueprint:
 
     telegram_chat_id:
       name: Telegram Chat ID
-      description: "ID чату/групи. Можна декілька через кому. Пусто = без Telegram."
       default: ""
       selector:
         text:
@@ -58,14 +55,13 @@ blueprint:
 
     storage_helper:
       name: Helper для збереження
-      description: "Text helper для збереження стану (щоб не було дублів)"
+      description: "Text helper для збереження стану (обов'язково!)"
       selector:
         entity:
           domain: input_text
 
     text_output:
       name: Helper для тексту розкладу (необов'язково)
-      description: "Сюди буде записуватись готовий текст"
       default: {}
       selector:
         entity:
@@ -83,6 +79,18 @@ blueprint:
       selector:
         boolean:
 
+    notify_emergency_changes:
+      name: Сповіщати про Екстрені відключення
+      default: true
+      selector:
+        boolean:
+
+    quiet_mode:
+      name: Тихий режим вночі (23:00 - 05:00)
+      default: false
+      selector:
+        boolean:
+
 mode: restart
 
 variables:
@@ -96,8 +104,10 @@ variables:
   text_output: !input text_output
   send_persistent_notification: !input send_persistent_notification
   send_on_first_run: !input send_on_first_run
+  notify_emergency_changes: !input notify_emergency_changes
+  quiet_mode: !input quiet_mode
 
-  # Перевіряємо статус аварії
+  # Поточний статус аварії
   is_emergency: >-
     {% if emergency_entity %}
       {{ is_state(emergency_entity, 'on') }}
@@ -105,7 +115,6 @@ variables:
       false
     {% endif %}
 
-  # Визначаємо, чи спрацював тригер через зміну аварійного статусу
   triggered_by_emergency: >-
     {{ trigger.entity_id is defined and trigger.entity_id == emergency_entity }}
 
@@ -118,24 +127,26 @@ trigger:
 condition:
   - condition: template
     value_template: "{{ trigger.from_state.state not in ['unknown', 'unavailable'] }}"
-  # При аварії ігноруємо часові рамки (важливо знати про це і вночі)
-  - condition: or
-    conditions:
-      - condition: template
-        value_template: "{{ triggered_by_emergency }}"
-      - condition: time
-        after: "05:00:00"
-        before: "23:40:00"
+  
+  # Тихий режим
+  - condition: template
+    value_template: >-
+      {% if quiet_mode %}
+        {% set current_hour = now().hour %}
+        {{ not (current_hour >= 23 or current_hour < 5) }}
+      {% else %}
+        true
+      {% endif %}
 
 action:
+  # Затримка на вимкнення аварії (4 години)
   - if:
       - condition: template
         value_template: "{{ triggered_by_emergency and not is_emergency }}"
     then:
-      - delay: 
-          minutes: 50
+      - delay: "04:00:00"
 
-  # 1) Отримуємо події календаря
+  # Отримуємо дані календаря
   - service: calendar.get_events
     target:
       entity_id: !input schedule_calendar
@@ -151,7 +162,7 @@ action:
           {{ r[k]['events'] | sort(attribute='start') }}
         {% else %}[]{% endif %}
 
-      # Формуємо підпис графіка
+      # Підпис поточного графіка
       schedule_signature: >-
         {%- set ns = namespace(sig='') -%}
         {%- for e in raw_events -%}
@@ -161,26 +172,42 @@ action:
         {%- endfor -%}
         {{ ("c=" ~ (raw_events|count|string) ~ ";" ~ ns.sig) | trim }}
 
-      old_signature: "{{ states(storage_helper) | default('') }}"
+      # Отримуємо старий запис з helper'а
+      stored_data: "{{ states(storage_helper) | default('') }}"
+      
+      # Перевіряємо, чи була активна аварія минулого разу (шукаємо префікс !E!)
+      last_was_emergency: "{{ '!E!' in stored_data[:3] }}"
+      
+      # Отримуємо чистий підпис графіка (видаляємо префікс аварії, якщо він є)
+      old_signature: "{{ stored_data | replace('!E!', '') }}"
 
-      # Перевірка змін
-      has_changed: >-
-        {% if triggered_by_emergency %}
+      # ЛОГІКА ЗМІН (Anti-Spam)
+      # 1. Аварія змінилась ТІЛЬКИ якщо поточний статус не співпадає з записаним у хелпері.
+      emergency_status_changed: "{{ is_emergency != last_was_emergency }}"
+      
+      # 2. Графік змінився, якщо новий підпис не співпадає зі старим
+      schedule_has_changed: >-
+        {% if send_on_first_run and stored_data == '' %}
           true
-        {% elif is_emergency %}
-          false
-        {% elif send_on_first_run %}
-          {{ schedule_signature[-255:] != old_signature }}
         {% else %}
-          {{ schedule_signature[-255:] != old_signature and old_signature != '' }}
+          {{ schedule_signature[-250:] != old_signature[-250:] }}
+        {% endif %}
+
+      # Загальна перевірка: чи треба щось слати?
+      should_notify: >-
+        {% if emergency_status_changed and notify_emergency_changes %}
+           true
+        {% elif schedule_has_changed %}
+           true
+        {% else %}
+           false
         {% endif %}
 
   - if:
       - condition: template
-        value_template: "{{ has_changed }}"
+        value_template: "{{ should_notify }}"
     then:
       - variables:
-          # --- Формування тексту ---
           events_today: >-
             {% set today = now().astimezone(now().tzinfo).date() %}
             {% set current_time = now().astimezone(now().tzinfo) %}
@@ -204,24 +231,30 @@ action:
             {% endfor %}
             {{ ns.events }}
 
-          # --- ДИНАМІЧНИЙ ЗАГОЛОВОК ---
+          # Заголовок
           final_title: >-
-            {% if is_emergency %}
-              🚨 ЕКСТРЕНІ ВІДКЛЮЧЕННЯ!
-            {% elif triggered_by_emergency and not is_emergency %}
-              ✅ Екстрені відключення завершено
+            {# Якщо статус аварії реально змінився #}
+            {% if emergency_status_changed and notify_emergency_changes %}
+              {% if is_emergency %}
+                🚨 ЕКСТРЕНІ ВІДКЛЮЧЕННЯ!
+              {% else %}
+                ✅ Екстрені відключення завершено
+              {% endif %}
+            {# Якщо просто оновився графік під час аварії #}
+            {% elif is_emergency %}
+               ⚠️ Оновлення графіку (під час аварії)
+            {# Стандартний випадок #}
             {% else %}
               {{ base_title }}
             {% endif %}
 
-          # --- ТІЛО ПОВІДОМЛЕННЯ (Мобільний) ---
+          # Тіло повідомлення
           body: >-
             📍 {{ location_name }}
 
-            {% if is_emergency -%}
-            ⛔️ УВАГА! Введені екстрені/аварійні відключення.
-            Графіки наразі НЕ ДІЮТЬ. Світло може зникати без попередження.
-            {%- else -%}
+            {% if is_emergency and notify_emergency_changes -%}
+            ⛔️ УВАГА! Діють екстрені відключення.
+            {%- endif %}
             
             {% if events_today | length > 0 -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }})
@@ -242,19 +275,15 @@ action:
             ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
             {% endfor -%}
             {%- endif %}
-            {%- endif %}
 
-          # --- ТІЛО ПОВІДОМЛЕННЯ (Telegram) ---
+          # HTML версія
           body_text: |-
             📍 {{ location_name }}
 
-            {% if is_emergency -%}
+            {% if is_emergency and notify_emergency_changes -%}
             🚨 <b>УВАГА! Введено екстрені відключення!</b>
-            
-            За розпорядженням Укренерго введені аварійні відключення.
-            ⚠️ <b>Графіки планових відключень наразі НЕ ДІЮТЬ.</b>
-            Світло може вимикатися та вмикатися без попередження для стабілізації енергосистеми.
-            {%- else -%}
+            Графіки можуть не діяти.
+            {%- endif %}
             
             {% if events_today | length > 0 -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
@@ -264,7 +293,7 @@ action:
             ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }}
             {% endfor -%}
             {%- else -%}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ далі без відключень
+            📅 СЬОГОДНІ: ⚡ далі без відключень
             {%- endif %}
 
             {% if events_tomorrow | length > 0 -%}
@@ -275,9 +304,8 @@ action:
             ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
             {% endfor -%}
             {%- endif %}
-            {%- endif %}
 
-      # 2.1) Сповіщення на телефони
+      # 2.1) Mobile App
       - repeat:
           for_each: !input mobile_targets
           sequence:
@@ -288,7 +316,7 @@ action:
                 title: "{{ final_title }}"
                 message: "{{ body }}"
                 data:
-                  priority: "{{ 'high' if is_emergency else 'high' }}"
+                  priority: "high"
                   tag: svitlo_changed
                   channel: "{{ 'Emergency' if is_emergency else 'General' }}"
                   notification_icon: "{{ 'mdi:alert-octagon' if is_emergency else 'mdi:calendar-check' }}"
@@ -311,7 +339,7 @@ action:
               message: "{{ body_text }}"
               parse_mode: HTML
 
-      # 2.3) Persistent notification
+      # 2.3) Persistent Notification
       - if:
           - condition: template
             value_template: "{{ send_persistent_notification }}"
@@ -322,7 +350,7 @@ action:
               message: "{{ body }}"
               notification_id: svitlo_changed
 
-      # 2.4) Helper write
+      # 2.4) Helper write (Text Output)
       - if:
           - condition: template
             value_template: "{{ text_output != {} }}"
@@ -333,13 +361,17 @@ action:
             data:
               value: "{{ body_text[:255] }}"
 
-  # 4) Зберігаємо підпис (ТІЛЬКИ якщо це НЕ аварія)
-  - if:
-      - condition: template
-        value_template: "{{ not is_emergency }}"
-    then:
-      - service: input_text.set_value
-        target:
-          entity_id: !input storage_helper
-        data:
-          value: "{{ schedule_signature[-255:] }}"
+  # 4) ЗБЕРІГАЄМО СТАН (Аварія + Графік)
+  # Ми пишемо в helper ЗАВЖДИ, щоб знати, чи ми в аварії.
+  # Якщо аварія - додаємо префікс !E!
+  - service: input_text.set_value
+    target:
+      entity_id: !input storage_helper
+    data:
+      value: >-
+        {% set sig = schedule_signature[-250:] %}
+        {% if is_emergency %}
+          !E!{{ sig }}
+        {% else %}
+          {{ sig }}
+        {% endif %}
