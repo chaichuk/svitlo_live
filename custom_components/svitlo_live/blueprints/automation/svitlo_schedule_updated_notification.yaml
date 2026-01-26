@@ -3,7 +3,7 @@ blueprint:
   description: "Надсилає push та Telegram повідомлення про оновлення графіків АБО введення екстрених відключень."
   domain: automation
   source_url: https://github.com/chaichuk/svitlo_live
-  
+
   input:
     schedule_calendar:
       name: Календар Svitlo Live
@@ -37,6 +37,13 @@ blueprint:
 
     telegram_chat_id:
       name: Telegram Chat ID
+      default: ""
+      selector:
+        text:
+
+    telegram_config_entry_id:
+      name: Telegram Bot Config Entry ID
+      description: "Для нових unified ботів (опціонально)"
       default: ""
       selector:
         text:
@@ -98,6 +105,7 @@ variables:
   emergency_entity: !input emergency_sensor
   mobile_targets: !input mobile_targets
   telegram_chat_id: !input telegram_chat_id
+  telegram_config_entry_id: !input telegram_config_entry_id
   base_title: !input title_text
   location_name: !input location_name
   storage_helper: !input storage_helper
@@ -127,7 +135,7 @@ trigger:
 condition:
   - condition: template
     value_template: "{{ trigger.from_state.state not in ['unknown', 'unavailable'] }}"
-  
+
   # Тихий режим
   - condition: template
     value_template: >-
@@ -174,17 +182,17 @@ action:
 
       # Отримуємо старий запис з helper'а
       stored_data: "{{ states(storage_helper) | default('') }}"
-      
+
       # Перевіряємо, чи була активна аварія минулого разу (шукаємо префікс !E!)
       last_was_emergency: "{{ '!E!' in stored_data[:3] }}"
-      
+
       # Отримуємо чистий підпис графіка (видаляємо префікс аварії, якщо він є)
       old_signature: "{{ stored_data | replace('!E!', '') }}"
 
       # ЛОГІКА ЗМІН (Anti-Spam)
       # 1. Аварія змінилась ТІЛЬКИ якщо поточний статус не співпадає з записаним у хелпері.
       emergency_status_changed: "{{ is_emergency != last_was_emergency }}"
-      
+
       # 2. Графік змінився, якщо новий підпис не співпадає зі старим
       schedule_has_changed: >-
         {% if send_on_first_run and stored_data == '' %}
@@ -255,7 +263,7 @@ action:
             {% if is_emergency and notify_emergency_changes -%}
             ⛔️ УВАГА! Діють екстрені відключення.
             {%- endif %}
-            
+
             {% if events_today | length > 0 -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }})
             {% for e in events_today -%}
@@ -284,7 +292,7 @@ action:
             🚨 <b>УВАГА! Введено екстрені відключення!</b>
             Графіки можуть не діяти.
             {%- endif %}
-            
+
             {% if events_today | length > 0 -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
             {% for e in events_today -%}
@@ -327,17 +335,37 @@ action:
           - condition: template
             value_template: "{{ telegram_chat_id != '' }}"
         then:
-          - service: telegram_bot.send_message
-            data:
-              target: >-
-                {% if telegram_chat_id is string %}
-                  {{ telegram_chat_id.split(',') | map('trim') | list }}
-                {% else %}
-                  {{ telegram_chat_id }}
-                {% endif %}
-              title: "{{ final_title }}"
-              message: "{{ body_text }}"
-              parse_mode: HTML
+          - choose:
+              # Новий unified bot
+              - conditions:
+                  - condition: template
+                    value_template: "{{ telegram_config_entry_id != '' }}"
+                sequence:
+                  - service: telegram_bot.send_message
+                    data:
+                      config_entry_id: "{{ telegram_config_entry_id }}"
+                      target: >-
+                        {% if telegram_chat_id is string %}
+                          {{ telegram_chat_id.split(',') | map('trim') | list }}
+                        {% else %}
+                          {{ telegram_chat_id }}
+                        {% endif %}
+                      title: "{{ final_title }}"
+                      message: "{{ body_text }}"
+                      parse_mode: HTML
+            # Старий bot (без config_entry_id)
+            default:
+              - service: telegram_bot.send_message
+                data:
+                  target: >-
+                    {% if telegram_chat_id is string %}
+                      {{ telegram_chat_id.split(',') | map('trim') | list }}
+                    {% else %}
+                      {{ telegram_chat_id }}
+                    {% endif %}
+                  title: "{{ final_title }}"
+                  message: "{{ body_text }}"
+                  parse_mode: HTML
 
       # 2.3) Persistent Notification
       - if:
