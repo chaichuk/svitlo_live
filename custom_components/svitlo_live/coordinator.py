@@ -33,39 +33,19 @@ MIDNIGHT_BLOCK_MINUTES = 20
 class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Тягне JSON з API і будує дані для конкретного region/queue."""
 
-    def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
+    def __init__(self, hass: HomeAssistant, config: dict[str, Any], hub: Any) -> None:
         self.hass = hass
-        self.region: str = config[CONF_REGION]  # Старий ключ (напр. harkivska-oblast або mikolaivska-oblast)
+        self.hub = hub
+        self.region: str = config[CONF_REGION] 
         self.queue: str = config[CONF_QUEUE]
 
-        # 1. Спроба "перекласти" регіон на новий лад (для перевірки в NEW_API_REGIONS)
-        # Наприклад: harkivska -> kharkivska. 
-        # Якщо це Миколаїв (немає в мапі), залишиться mikolaivska-oblast.
-        self.api_region_key = API_REGION_MAP.get(self.region, self.region)
-
-        # 2. Визначаємо, чи цей регіон належить до "Нового API"
-        self.is_new_api = (self.api_region_key in NEW_API_REGIONS)
-
-        # Якщо це старий API, то ми повинні використовувати "старий" ключ для пошуку в JSON,
-        # бо старий API не знає про 'kharkivska', він знає 'harkivska'.
-        # Тому для старого API відкочуємо ключ назад на self.region.
-        if not self.is_new_api:
-            self.api_region_key = self.region
+        # We need to know if this region is from New API or Old API.
+        # For legacy entries, we'll try to find it in the current catalog.
+        self.is_new_api = False
+        self.api_region_key = self.region
 
         scan_seconds = int(config.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL))
 
-        shared = hass.data.setdefault(DOMAIN, {})
-        if "_shared_api" not in shared:
-            shared["_shared_api"] = {
-                "lock": asyncio.Lock(),
-                # Кеш для старого API
-                "last_json_old": None,
-                "last_json_utc_old": None,
-                # Кеш для нового API
-                "last_json_new": None,
-                "last_json_utc_new": None,
-            }
-        self._shared_api = shared["_shared_api"]
 
         self._unsub_precise: Optional[Callable[[], None]] = None
 
@@ -77,94 +57,33 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        # --- ВИБІР URL ---
-        if self.is_new_api:
-            target_url = DTEK_API_URL
-            cache_key_json = "last_json_new"
-            cache_key_utc = "last_json_utc_new"
-        else:
-            target_url = OLD_API_URL
-            cache_key_json = "last_json_old"
-            cache_key_utc = "last_json_utc_old"
-
-        now_utc = dt_util.utcnow()
-        shared = self._shared_api
+        """Fetch and parse data from the appropriate API."""
+        # 1) Get regions to find out which API to use and what the actual key is
+        catalog = await self.hub.get_regions_catalog()
         
-        last_json = shared.get(cache_key_json)
-        last_json_utc: Optional[datetime] = shared.get(cache_key_utc)
+        # Try finding by exact match or mapped match
+        target_id = self.region
+        mapped_id = API_REGION_MAP.get(self.region)
+        
+        region_info = next((r for r in catalog if r["id"] == target_id), None)
+        if not region_info and mapped_id:
+            region_info = next((r for r in catalog if r["id"] == mapped_id), None)
+            if region_info:
+                target_id = mapped_id
+        
+        if region_info:
+            self.is_new_api = region_info["is_new_api"]
+            self.api_region_key = target_id
+        else:
+            # Fallback for completely unknown regions
+            _LOGGER.warning("Region %s not found in dynamic catalog", self.region)
+            self.is_new_api = (self.region in NEW_API_REGIONS or mapped_id in NEW_API_REGIONS)
+            self.api_region_key = mapped_id if mapped_id and self.is_new_api else self.region
 
-        should_reuse = (
-            last_json is not None
-            and last_json_utc is not None
-            and (now_utc - last_json_utc).total_seconds() < MIN_REUSE_SECONDS
-        )
-
-        if not should_reuse:
-            async with shared["lock"]:
-                last_json = shared.get(cache_key_json)
-                last_json_utc = shared.get(cache_key_utc)
-                
-                should_reuse = (
-                    last_json is not None
-                    and last_json_utc is not None
-                    and (dt_util.utcnow() - last_json_utc).total_seconds() < MIN_REUSE_SECONDS
-                )
-
-                if not should_reuse:
-                    # Midnight guard
-                    now_kyiv = dt_util.now(TZ_KYIV)
-                    if now_kyiv.hour == 0 and now_kyiv.minute < MIDNIGHT_BLOCK_MINUTES:
-                        if last_json is None:
-                            # Якщо це ніч і даних немає - пробуємо качати, але якщо помилка - не страшно
-                            pass 
-                        else:
-                            _LOGGER.debug("Midnight guard active, reusing cached data")
-                            should_reuse = True # force reuse
-
-                    if not should_reuse:
-                        # Fetch
-                        try:
-                            session = async_get_clientsession(self.hass)
-                            _LOGGER.debug("Fetching API: %s (NewAPI=%s)", target_url, self.is_new_api)
-                            
-                            async with session.get(target_url, timeout=30) as resp:
-                                if resp.status != 200:
-                                    raise UpdateFailed(f"HTTP {resp.status} for {target_url}")
-                                
-                                raw_response = await resp.json(content_type=None)
-                                
-                                # Логіка парсингу:
-                                # Новий API (Worker) повертає { "body": "..." }
-                                # Старий API повертає чистий JSON { "regions": [...] }
-                                
-                                final_data = None
-                                
-                                if self.is_new_api:
-                                    # Специфіка нового воркера
-                                    body_str = raw_response.get("body")
-                                    if body_str:
-                                        try:
-                                            final_data = json.loads(body_str)
-                                        except json.JSONDecodeError as err:
-                                            raise UpdateFailed(f"Failed to parse Worker body: {err}")
-                                    elif "regions" in raw_response:
-                                        final_data = raw_response
-                                    else:
-                                        raise UpdateFailed("New API response missing 'body' or 'regions'")
-                                else:
-                                    # Старий API - просто беремо JSON як є
-                                    if "regions" in raw_response:
-                                        final_data = raw_response
-                                    else:
-                                        # Буває, старий API повертає щось дивне
-                                        raise UpdateFailed("Old API response missing 'regions'")
-
-                                last_json = final_data
-                                shared[cache_key_json] = last_json
-                                shared[cache_key_utc] = dt_util.utcnow()
-                                
-                        except Exception as e:
-                            raise UpdateFailed(f"Network error ({target_url}): {e}") from e
+        # 2) Fetch fresh JSON from appropriate API
+        last_json = await self.hub.ensure_data(is_new=self.is_new_api)
+        if not last_json:
+            raise UpdateFailed(f"No data available for {'New' if self.is_new_api else 'Old'} API")
 
         # 2) Parse
         try:

@@ -29,7 +29,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Svitlo.live v2 from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
+    # Ініціалізація хаба
+    if "hub" not in hass.data[DOMAIN]:
+        from .api_hub import SvitloApiHub
+        hass.data[DOMAIN]["hub"] = SvitloApiHub(hass)
+    hub = hass.data[DOMAIN]["hub"]
     
     # Зчитуємо параметри
     scan_interval = entry.data.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
@@ -47,7 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _async_cleanup_legacy_items(hass, entry)
 
     # Ініціалізація координатора
-    coordinator = SvitloCoordinator(hass, config)
+    coordinator = SvitloCoordinator(hass, config, hub)
     await coordinator.async_config_entry_first_refresh()
     
     hass.data[DOMAIN][entry.entry_id] = coordinator
