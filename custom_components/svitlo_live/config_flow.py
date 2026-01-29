@@ -107,7 +107,7 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+        self._config_entry = config_entry
         self._catalog: List[Dict[str, Any]] = []
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
@@ -115,21 +115,21 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
         hub = await _async_get_hub(self.hass)
         self._catalog = await hub.get_regions_catalog()
         
-        region_id = self.config_entry.data.get(CONF_REGION)
+        region_id = self._config_entry.data.get(CONF_REGION)
         region_node = next((r for r in self._catalog if r["id"] == region_id), None)
         
         if user_input is not None:
             # We update data for queue, and options for interval
-            new_data = dict(self.config_entry.data)
+            new_data = dict(self._config_entry.data)
             if CONF_QUEUE in user_input:
                 new_data[CONF_QUEUE] = user_input[CONF_QUEUE]
             
-            new_title = self.config_entry.title
+            new_title = self._config_entry.title
             if region_node:
                 new_title = f"{region_node['name']} / {new_data[CONF_QUEUE]}"
 
             self.hass.config_entries.async_update_entry(
-                self.config_entry, 
+                self._config_entry, 
                 data=new_data,
                 title=new_title,
                 options={
@@ -140,8 +140,8 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
 
         queues = region_node.get("queues", []) if region_node else []
         queue_options = [{"label": q, "value": q} for q in queues]
-        current_queue = self.config_entry.data.get(CONF_QUEUE)
-        current_interval = self.config_entry.options.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
+        current_queue = self._config_entry.data.get(CONF_QUEUE)
+        current_interval = self._config_entry.options.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
 
         schema = {
             vol.Optional("scan_interval_seconds", default=current_interval): vol.All(
