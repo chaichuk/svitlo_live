@@ -24,5 +24,18 @@
       "cannot_connect": "Не вдалося підключитися до API.",
       "unknown": "Невідома помилка."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "queue": "Черга / Група",
+          "preserve_id": "Зберегти IDs сутностей"
+        },
+        "data_description": {
+          "preserve_id": "*(не порушує роботу старих автоматизацій)*"
+        }
+      }
+    }
   }
 }

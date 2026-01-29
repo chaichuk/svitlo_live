@@ -13,50 +13,23 @@ DEFAULT_SCAN_INTERVAL = 900
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
 CONF_OPERATOR = "operator"
+CONF_PRESERVE_ID = "preserve_id"
 
-# --- 1. СПИСОК РЕГІОНІВ (Для UI) ---
-# Залишаємо старі ключі, щоб не ламати існуючі налаштування
-REGIONS = {
-    # Спеціальні / DTEK / Yasno
-    "kyiv": "м. Київ",
-    "dnipro-city": "м. Дніпро",
-    
-    "kiivska-oblast": "Київська область",
-    "odeska-oblast": "Одеська область",
-    "dnipropetrovska-oblast": "Дніпропетровська область",
-    "lvivska-oblast": "Львівська область",
-
-    # Нові регіони (в новому API)
-    "harkivska-oblast": "Харківська область",
-    "poltavska-oblast": "Полтавська область",
-    "cherkaska-oblast": "Черкаська область",
-    "chernigivska-oblast": "Чернігівська область",
-    "hmelnitska-oblast": "Хмельницька область",
-    "ivano-frankivska-oblast": "Івано-Франківська область",
-    "rivnenska-oblast": "Рівненська область",
-    "ternopilska-oblast": "Тернопільська область",
-    "zakarpatska-oblast": "Закарпатська область",
-    "zaporizka-oblast": "Запорізька область",
-    "jitomirska-oblast": "Житомирська область",
-    "sumska-oblast": "Сумська область",
-
-    # Старі регіони (працюють тільки на старому API)
-    "vinnitska-oblast": "Вінницька область",
-    "volinska-oblast": "Волинська область",
-    "mikolaivska-oblast": "Миколаївська область",
-    "kirovogradska-oblast": "Кіровоградська область",
-    "chernivetska-oblast": "Чернівецька область",
-    "donetska-oblast": "Донецька область",
-}
-
-# --- 2. МАПА ТРАНСЛІТЕРАЦІЇ ---
-# Перекладаємо старі ключі з конфігу на правильні ключі для НОВОГО API.
-# Для старого API ці ключі не використовуються (там залишаються старі).
+# Static mappings are deprecated in favor of dynamic fetching, but kept for migration if needed.
 API_REGION_MAP = {
     "harkivska-oblast": "kharkivska-oblast",
     "hmelnitska-oblast": "khmelnytska-oblast",
     "chernigivska-oblast": "chernihivska-oblast",
     "jitomirska-oblast": "zhytomyrska-oblast",
+}
+
+NEW_API_REGIONS = {
+    "kiivska-oblast", "odeska-oblast", "dnipropetrovska-oblast", "lvivska-oblast",
+    "kyiv", "dnipro-dnem", "dnipro-cek", "dnipro-city",
+    "kharkivska-oblast", "poltavska-oblast", "cherkaska-oblast", "chernihivska-oblast",
+    "khmelnytska-oblast", "ivano-frankivska-oblast", "rivnenska-oblast", 
+    "ternopilska-oblast", "zakarpatska-oblast", "zaporizka-oblast", 
+    "zhytomyrska-oblast", "sumska-oblast"
 }
 
 # --- 3. СПИСОК РЕГІОНІВ ДЛЯ НОВОГО API ---

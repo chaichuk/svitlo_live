@@ -24,5 +24,18 @@
       "cannot_connect": "Cannot connect to API.",
       "unknown": "Unexpected error."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "queue": "Queue / Group",
+          "preserve_id": "Preserve entities IDs"
+        },
+        "data_description": {
+          "preserve_id": "*(old automations continue to work)*"
+        }
+      }
+    }
   }
 }

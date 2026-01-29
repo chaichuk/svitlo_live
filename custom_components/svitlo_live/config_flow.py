@@ -1,53 +1,36 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple
+
 import voluptuous as vol
+from typing import Any, Dict, List
 
 from homeassistant import config_entries
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import selector
+from homeassistant.helpers import entity_registry as er
 
+from .api_hub import SvitloApiHub
 from .const import (
     DOMAIN, 
     CONF_REGION, 
+    CONF_REGION, 
     CONF_QUEUE, 
-    REGIONS, 
-    REGION_QUEUE_MODE, 
-    CONF_OPERATOR,
+    CONF_PRESERVE_ID,
     DEFAULT_SCAN_INTERVAL
 )
 
-# Створюємо допоміжні словники для UI
-REGION_SLUG_TO_UI: Dict[str, str] = dict(sorted(REGIONS.items(), key=lambda kv: kv[1]))
-REGION_UI_TO_SLUG: Dict[str, str] = {v: k for k, v in REGION_SLUG_TO_UI.items()}
-REGION_UI_LIST: List[str] = list(REGION_SLUG_TO_UI.values())
-REGION_UI_OPTIONS = [{"label": name, "value": name} for name in REGION_UI_LIST]
-
-def _queue_options_for_region(region_slug: str) -> Tuple[List[str], List[Dict[str, str]], str]:
-    """Повертає список черг залежно від режиму регіону."""
-    mode = REGION_QUEUE_MODE.get(region_slug, "DEFAULT")
-    
-    if mode == "GRUPA_NUM":
-        # Для областей з простими групами (1, 2, 3...)
-        max_n = 12 if region_slug == "chernivetska-oblast" else 6
-        values = [str(i) for i in range(1, max_n + 1)]
-        default = "1"
-    elif mode == "CHERGA_NUM":
-        values = [str(i) for i in range(1, 7)]
-        default = "1"
-    else:
-        values = [f"{i}.{j}" for i in range(1, 7) for j in (1, 2)]
-        default = "1.1"
-        
-    options = [{"label": v, "value": v} for v in values]
-    return values, options, default
+async def _async_get_hub(hass: HomeAssistant) -> SvitloApiHub:
+    """Get the API hub from hass data or create it."""
+    if "hub" not in hass.data.get(DOMAIN, {}):
+        return SvitloApiHub(hass)
+    return hass.data[DOMAIN]["hub"]
 
 class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        self._region_ui: str | None = None
-        self._region_slug: str | None = None
-        self._operator_slug: str | None = None 
+        self._region_id: str | None = None
+        self._region_name: str | None = None
+        self._catalog: List[Dict[str, Any]] = []
 
     @staticmethod
     @callback
@@ -55,151 +38,167 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return SvitloOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
+        hub = await _async_get_hub(self.hass)
+        self._catalog = await hub.get_regions_catalog()
+        
         if user_input is not None:
-            self._region_ui = user_input[CONF_REGION]
-            slug = REGION_UI_TO_SLUG.get(self._region_ui, self._region_ui)
-            
-            if slug == "dnipro-city":
-                return await self.async_step_operator()
-            
-            self._region_slug = slug
-            return await self.async_step_details()
+            region_name = user_input[CONF_REGION]
+            region_node = next((r for r in self._catalog if r["name"] == region_name), None)
+            if region_node:
+                self._region_id = region_node["id"]
+                self._region_name = region_node["name"]
+                return await self.async_step_details()
 
-        # дефолтний регіон
-        default_region = "м. Київ" if "м. Київ" in REGION_UI_LIST else (REGION_UI_LIST[0] if REGION_UI_LIST else "")
+        region_options = [{"label": r["name"], "value": r["name"]} for r in self._catalog]
         
         data_schema = vol.Schema({
-            vol.Required(CONF_REGION, default=default_region): selector({
-                "select": {"options": REGION_UI_OPTIONS, "mode": "dropdown"}
+            vol.Required(CONF_REGION): selector({
+                "select": {"options": region_options, "mode": "dropdown"}
             })
         })
         return self.async_show_form(step_id="user", data_schema=data_schema)
 
-    async def async_step_operator(self, user_input: dict[str, Any] | None = None):
-        """Крок вибору оператора для м. Дніпро."""
-        if user_input is not None:
-            operator = user_input[CONF_OPERATOR]
-            # slug на основі вибору
-            if operator == "dnem":
-                self._region_slug = "dnipro-dnem"
-            else:
-                self._region_slug = "dnipro-cek"
-            return await self.async_step_details()
-
-        # кнопки
-        options = [
-            {"label": "ДнЕМ (Дніпровські електромережі)", "value": "dnem"},
-            {"label": "ЦЕК (Центральна енергетична компанія)", "value": "cek"}
-        ]
-        
-        data_schema = vol.Schema({
-            vol.Required(CONF_OPERATOR, default="dnem"): selector({
-                "select": {"options": options, "mode": "list"} 
-            })
-        })
-
-        return self.async_show_form(
-            step_id="operator", 
-            data_schema=data_schema,
-            description_placeholders={"region": self._region_ui}
-        )
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        """Handle reconfiguration of an existing entry."""
+        return await self.async_step_user()
 
     async def async_step_details(self, user_input: dict[str, Any] | None = None):
-        if not self._region_slug:
-            return await self.async_step_user(user_input=None)
+        if not self._region_id:
+            return await self.async_step_user()
 
-        _, queue_options, default_queue = _queue_options_for_region(self._region_slug)
+        region_node = next((r for r in self._catalog if r["id"] == self._region_id), None)
+        if not region_node:
+            return await self.async_step_user()
+            
+        queues = region_node.get("queues", [])
+        queue_options = [{"label": q, "value": q} for q in queues]
 
         if user_input is not None:
             queue = user_input[CONF_QUEUE]
+            title = f"{self._region_name} / {queue}"
             
-            # назви для інтеграції
-            title_region = self._region_ui
-            if self._region_slug == "dnipro-dnem":
-                title_region = "Дніпро (ДнЕМ)"
-            elif self._region_slug == "dnipro-cek":
-                title_region = "Дніпро (ЦЕК)"
+            await self.async_set_unique_id(f"{self._region_id}_{queue}")
+            
+            if self.context.get("source") == config_entries.SOURCE_RECONFIGURE:
+                return self.async_update_reload_and_abort(
+                    self._get_reconfigure_entry(),
+                    data={CONF_REGION: self._region_id, CONF_QUEUE: queue},
+                    title=title
+                )
 
-            title = f"{title_region} / {queue}"
-            
-            await self.async_set_unique_id(f"{self._region_slug}_{queue}")
             self._abort_if_unique_id_configured()
             
             return self.async_create_entry(
                 title=title,
-                data={CONF_REGION: self._region_slug, CONF_QUEUE: queue},
-                options={},
+                data={CONF_REGION: self._region_id, CONF_QUEUE: queue},
             )
 
         data_schema = vol.Schema({
-            vol.Required(CONF_QUEUE, default=default_queue): selector({
+            vol.Required(CONF_QUEUE): selector({
                 "select": {"options": queue_options, "mode": "dropdown"}
             })
         })
         
-        # Динамічний текст для заголовка
-        desc_region = self._region_ui
-        if self._region_slug == "dnipro-dnem":
-            desc_region = "Дніпро (ДнЕМ)"
-        elif self._region_slug == "dnipro-cek":
-            desc_region = "Дніпро (ЦЕК)"
-
         return self.async_show_form(
             step_id="details",
             data_schema=data_schema,
-            description_placeholders={"region": desc_region},
+            description_placeholders={"region": self._region_name},
         )
 
 
 class SvitloOptionsFlow(config_entries.OptionsFlow):
-    """Обробка зміни налаштувань (шестерня)."""
+    """Handle options flow."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+        self._config_entry = config_entry
+        self._catalog: List[Dict[str, Any]] = []
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
+        hub = await _async_get_hub(self.hass)
+        self._catalog = await hub.get_regions_catalog()
+        
+        region_id = self._config_entry.data.get(CONF_REGION)
+        region_node = next((r for r in self._catalog if r["id"] == region_id), None)
+        
         if user_input is not None:
-            # 1. Оновлюємо дані
-            new_data = self.config_entry.data.copy()
-            new_data.update(user_input)
-
-            # 2. Формуємо новий заголовок
-            region_slug = new_data[CONF_REGION]
-            new_queue = new_data[CONF_QUEUE]
+            # We update data for queue, and options for interval
+            new_data = dict(self._config_entry.data)
+            if CONF_QUEUE in user_input:
+                new_data[CONF_QUEUE] = user_input[CONF_QUEUE]
             
-            region_name = REGIONS.get(region_slug, region_slug)
-            # Спрощена логіка назв для Дніпра (можна розширити як було вище)
-            if region_slug == "dnipro-dnem": region_name = "Дніпро (ДнЕМ)"
-            elif region_slug == "dnipro-cek": region_name = "Дніпро (ЦЕК)"
+            # --- MIGRATION LOGIC START ---
+            if user_input.get(CONF_PRESERVE_ID):
+                old_region = self._config_entry.data.get(CONF_REGION)
+                old_queue = self._config_entry.data.get(CONF_QUEUE)
+                new_queue = new_data.get(CONF_QUEUE)
+                
+                # Only if queue changed and region is present (it should be)
+                if old_queue and new_queue and old_queue != new_queue:
+                    registry = er.async_get(self.hass)
+                    entry_id = self._config_entry.entry_id
+                    
+                    # List of patterns used in sensor.py and binary_sensor.py
+                    # usage: pattern.format(region, queue)
+                    patterns = [
+                        "svitlo_status_{}_{}",
+                        "svitlo_next_grid_{}_{}",
+                        "svitlo_next_off_{}_{}",
+                        "svitlo_next_power_on_{}_{}",
+                        "svitlo_next_power_off_{}_{}",
+                        "svitlo_min_to_on_{}_{}",
+                        "svitlo_min_to_off_{}_{}",
+                        "svitlo_updated_{}_{}",
+                        # Binary sensors use entry_id prefix
+                        f"{entry_id}_power_{{}}_{{}}",
+                        f"{entry_id}_emergency_{{}}_{{}}",
+                        "svitlo_calendar_{}_{}",
+                    ]
 
-            new_title = f"{region_name} / {new_queue}"
+                    for pat in patterns:
+                        old_uid = pat.format(old_region, old_queue)
+                        new_uid = pat.format(old_region, new_queue)
+                        
+                        # Try to find entity in registry for likely platforms
+                        for platform in ["sensor", "binary_sensor", "calendar"]:
+                            entity_id = registry.async_get_entity_id(platform, DOMAIN, old_uid)
+                            if entity_id:
+                                registry.async_update_entity(entity_id, new_unique_id=new_uid)
+                                break
+            # --- MIGRATION LOGIC END ---
 
-            # 3. Зберігаємо
+            new_title = self._config_entry.title
+            if region_node:
+                new_title = f"{region_node['name']} / {new_data[CONF_QUEUE]}"
+
             self.hass.config_entries.async_update_entry(
-                self.config_entry,
+                self._config_entry, 
                 data=new_data,
-                title=new_title
+                title=new_title,
+                options={
+                    "scan_interval_seconds": user_input.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
+                }
             )
             return self.async_create_entry(title="", data={})
 
-        # --- Підготовка форми ---
-        region_slug = self.config_entry.data[CONF_REGION]
-        current_queue = self.config_entry.data.get(CONF_QUEUE)
+        queues = region_node.get("queues", []) if region_node else []
+        queue_options = [{"label": q, "value": q} for q in queues]
+        current_queue = self._config_entry.data.get(CONF_QUEUE)
+        current_interval = self._config_entry.options.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
 
-        # Отримуємо варіанти черг
-        _, queue_options, _ = _queue_options_for_region(region_slug)
-
-        # Показуємо ТІЛЬКИ вибір черги (без інтервалу)
-        schema = vol.Schema({
-            vol.Required(CONF_QUEUE, default=current_queue): selector({
+        schema = {}
+        
+        if queue_options:
+            schema[vol.Required(CONF_QUEUE, default=current_queue)] = selector({
                 "select": {"options": queue_options, "mode": "dropdown"}
-            }),
-        })
+            })
+            # Add preserve ID checkbox
+            schema[vol.Optional(CONF_PRESERVE_ID, default=False)] = selector({
+                "boolean": {}
+            })
 
         return self.async_show_form(
-            step_id="init",
-            data_schema=schema,
-            description_placeholders={"region": REGIONS.get(region_slug, region_slug)}
+            step_id="init", 
+            data_schema=vol.Schema(schema),
+            description_placeholders={"region": region_node["name"] if region_node else region_id}
         )
