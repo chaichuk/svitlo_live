@@ -150,8 +150,8 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
                         "svitlo_min_to_off_{}_{}",
                         "svitlo_updated_{}_{}",
                         # Binary sensors use entry_id prefix
-                        f"{entry_id}_power_{{}_{{}}",
-                        f"{entry_id}_emergency_{{}_{{}}",
+                        f"{entry_id}_power_{{}}_{{}}",
+                        f"{entry_id}_emergency_{{}}_{{}}",
                     ]
 
                     for pat in patterns:
