@@ -23,25 +23,17 @@ API_REGION_MAP = {
     "jitomirska-oblast": "zhytomyrska-oblast",
 }
 
-NEW_API_REGIONS = {
-    "kiivska-oblast", "odeska-oblast", "dnipropetrovska-oblast", "lvivska-oblast",
-    "kyiv", "dnipro-dnem", "dnipro-cek", "dnipro-city",
-    "kharkivska-oblast", "poltavska-oblast", "cherkaska-oblast", "chernihivska-oblast",
-    "khmelnytska-oblast", "ivano-frankivska-oblast", "rivnenska-oblast", 
-    "ternopilska-oblast", "zakarpatska-oblast", "zaporizka-oblast", 
-    "zhytomyrska-oblast", "sumska-oblast"
-}
-
 # --- 3. СПИСОК РЕГІОНІВ ДЛЯ НОВОГО API ---
 # Якщо регіон (або його переклад) є в цьому списку -> йдемо на DTEK_API_URL
 # Інакше -> йдемо на OLD_API_URL
 NEW_API_REGIONS = {
     "kyiv", "kiivska-oblast",
     "odeska-oblast",
-    "dnipro-dnem", "dnipro-cek", "dnipropetrovska-oblast",
+    "dnipro-dnem", "dnipro-cek", "dnipro-city", "dnipropetrovska-oblast",
     "lvivska-oblast",
+    "chernivetska-oblast",
     # Нові з парсера
-    "kharkivska-oblast", # Вже правильна транслітерація
+    "kharkivska-oblast", 
     "poltavska-oblast",
     "cherkaska-oblast",
     "chernihivska-oblast",
@@ -54,6 +46,7 @@ NEW_API_REGIONS = {
     "zhytomyrska-oblast",
     "sumska-oblast",
 }
+
 
 REGION_QUEUE_MODE = {
     "chernivetska-oblast": "GRUPA_NUM",

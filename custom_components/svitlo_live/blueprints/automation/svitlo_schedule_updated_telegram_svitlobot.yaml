@@ -209,29 +209,29 @@ actions:
             {{ raw_events | selectattr('local_date', 'equalto', tomorrow_str) | list }}
           body: "{% set d = now() %}\n{% set weekday_map = {\n  0: 'Понеділок',\n  1:
             'Вівторок',\n  2: 'Середа',\n  3: 'Четвер',\n  4: \"П'ятниця\",\n  5: 'Субота',\n
-            \ 6: 'Неділя'\n} %}\n{% set weekday_today = weekday_map[d.weekday()] %}\n{%
-            set weekday_tomorrow = weekday_map[(d + timedelta(days=1)).weekday()] %}\n{%
+            \ 6: 'Неділя'\n} %}\n{%- set weekday_today = weekday_map[d.weekday()] %}\n{%-
+            set weekday_tomorrow = weekday_map[(d + timedelta(days=1)).weekday()] %}\n{%-
             set d_tomorrow = (d + timedelta(days=1)).strftime('%d.%m') %}\n\U0001F516
-            Графік на *сьогодні*, {{ d.strftime('%d.%m') }} ({{ weekday_today }})\n{%
-            if events_today -%}\n{% for e in events_today -%}\n{% set s1 = as_datetime(e.start).astimezone()
-            -%}\n{% set e1 = as_datetime(e.end).astimezone() -%}\n{% set diff = e1 -
-            s1 -%}\n{% set total_minutes = (diff.total_seconds() // 60) | int -%}\n{%
-            set hours = (total_minutes // 60) | int -%}\n{% set minutes = (total_minutes
-            % 60) | int -%}\n{% if hours > 0 and minutes > 0 -%}\n{% set dur = hours
-            ~ ' год ' ~ minutes ~ ' хв' -%}\n{% elif hours > 0 -%}\n{% set dur = hours
-            ~ ' год' -%}\n{% else -%}\n{% set dur = minutes ~ ' хв' -%}\n{% endif -%}\n\U0001F53B
-            `{{ s1.strftime('%H:%M') }} ━ {{ e1.strftime('%H:%M') }}` ({{ dur }})\n{%
-            endfor -%}\n{% else -%}\n⚡ світло без відключень\n{% endif -%}\n{% if events_tomorrow
+            Графік на *сьогодні*, {{ d.strftime('%d.%m') }} ({{ weekday_today }})\n{%-
+            if events_today %}\n{%- for e in events_today %}\n{%- set s1 = as_datetime(e.start).astimezone()
+            %}\n{%- set e1 = as_datetime(e.end).astimezone() %}\n{%- set diff = e1 -
+            s1 %}\n{%- set total_minutes = (diff.total_seconds() // 60) | int %}\n{%-
+            set hours = (total_minutes // 60) | int %}\n{%- set minutes = (total_minutes
+            % 60) | int %}\n{%- if hours > 0 and minutes > 0 %}\n{%- set dur = hours
+            ~ ' год ' ~ minutes ~ ' хв' %}\n{%- elif hours > 0 %}\n{%- set dur = hours
+            ~ ' год' %}\n{%- else %}\n{%- set dur = minutes ~ ' хв' %}\n{%- endif %}\n\U0001F53B
+            `{{ s1.strftime('%H:%M') }} ━ {{ e1.strftime('%H:%M') }}` ({{ dur }})\n{%-
+            endfor %}\n{%- else %}\n⚡ світло без відключень\n{%- endif %}\n{%- if events_tomorrow
             %}\n\U0001F516 Графік на *завтра*, {{ d_tomorrow }} ({{ weekday_tomorrow
-            }})\n{% for e in events_tomorrow -%}\n{% set s2 = as_datetime(e.start).astimezone()
-            -%}\n{% set e2 = as_datetime(e.end).astimezone() -%}\n{% set diff = e2 -
-            s2 -%}\n{% set total_minutes = (diff.total_seconds() // 60) | int -%}\n{%
-            set hours = (total_minutes // 60) | int -%}\n{% set minutes = (total_minutes
-            % 60) | int -%}\n{% if hours > 0 and minutes > 0 -%}\n{% set dur = hours
-            ~ ' год ' ~ minutes ~ ' хв' -%}\n{% elif hours > 0 -%}\n{% set dur = hours
-            ~ ' год' -%}\n{% else -%}\n{% set dur = minutes ~ ' хв' -%}\n{% endif -%}\n\U0001F53B
-            `{{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}` ({{ dur }})\n{%
-            endfor -%}\n{% endif -%}"
+            }})\n{%- for e in events_tomorrow %}\n{%- set s2 = as_datetime(e.start).astimezone()
+            %}\n{%- set e2 = as_datetime(e.end).astimezone() %}\n{%- set diff = e2 -
+            s2 %}\n{%- set total_minutes = (diff.total_seconds() // 60) | int %}\n{%-
+            set hours = (total_minutes // 60) | int %}\n{%- set minutes = (total_minutes
+            % 60) | int %}\n{%- if hours > 0 and minutes > 0 %}\n{%- set dur = hours
+            ~ ' год ' ~ minutes ~ ' хв' %}\n{%- elif hours > 0 %}\n{%- set dur = hours
+            ~ ' год' %}\n{%- else %}\n{%- set dur = minutes ~ ' хв' %}\n{%- endif %}\n\U0001F53B
+            `{{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}` ({{ dur }})\n{%-
+            endfor %}\n{%- endif %}"
       # відправка фото або тексту
       - alias: URL for image exist
         if:

@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
-from .const import OLD_API_URL, DTEK_API_URL
+from .const import OLD_API_URL, DTEK_API_URL, API_REGION_MAP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,16 +53,20 @@ class SvitloApiHub:
         for r in old_data.get("regions", []):
             cpu = r.get("cpu")
             if not cpu: continue
-            # If already there, we might update or ignore. 
+            
+            # Normalize slug using map if present (e.g. harkivska -> kharkivska)
+            target_id = API_REGION_MAP.get(cpu, cpu)
+
+            # If already there (under new or normalized ID), we might update or ignore. 
             # Usually keep new API preference if same slug.
-            if cpu not in merged_regions:
+            if target_id not in merged_regions:
                 # Filter out null schedules (like Crimea in old API)
                 schedule = r.get("schedule")
                 if schedule is None: continue
                 
-                merged_regions[cpu] = {
-                    "id": cpu,
-                    "name": r.get("name_ua") or r.get("name_en") or cpu,
+                merged_regions[target_id] = {
+                    "id": target_id,
+                    "name": r.get("name_ua") or r.get("name_en") or target_id,
                     "is_new_api": False,
                     "queues": list(schedule.keys())
                 }
