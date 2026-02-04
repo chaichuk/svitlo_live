@@ -13,17 +13,23 @@ class SvitloLiveCardEditor extends HTMLElement {
   _render() {
     if (!this._hass || !this._config) return;
 
+    // Розширена фільтрація: шукаємо за префіксом або за наявністю атрибута графіка
     const entities = Object.keys(this._hass.states).filter((eid) => {
-      return eid.startsWith("calendar.svitlo_") && eid.endsWith("_schedule");
+      const state = this._hass.states[eid];
+      const isSvitlo = eid.includes("svitlo") && (eid.startsWith("calendar.") || eid.startsWith("binary_sensor."));
+      const hasSchedule = state && state.attributes && state.attributes.today_48half !== undefined;
+      return isSvitlo || hasSchedule;
     });
+
+    const totalCount = Object.keys(this._hass.states).length;
 
     this.innerHTML = `
       <div style="padding: 10px; display: flex; flex-direction: column; gap: 12px; color: var(--primary-text-color);">
         <ha-textfield
+            id="title-input"
             label="Назва картки (необов'язково)"
-            .value="${this._config.title || ''}"
-            .configValue="${'title'}"
-            @input="${this._valueChanged}"
+            value="${this._config.title || ''}"
+            configValue="title"
             style="width: 100%;"
         ></ha-textfield>
 
@@ -46,8 +52,21 @@ class SvitloLiveCardEditor extends HTMLElement {
       return `<option value="${eid}" ${this._config.entity === eid ? "selected" : ""}>${friendlyName}</option>`;
     }).join('')}
         </select>
+        <p style="font-size: 12px; opacity: 0.8;">
+          Оберіть вашу чергу. Картка автоматично знайде графік та статус екстрених відключень.
+        </p>
+        <p style="font-size: 10px; opacity: 0.5;">
+          Система бачить ${totalCount} сутностей загалом. Якщо вашої черги немає, перевірте, чи встановлена інтеграція.
+        </p>
       </div>
     `;
+
+    const titleInput = this.querySelector("#title-input");
+    if (titleInput) {
+      titleInput.addEventListener("input", (ev) => {
+        this._valueChanged({ target: { configValue: 'title', value: ev.target.value } });
+      });
+    }
 
     const selector = this.querySelector("#entity-selector");
     if (selector) {
@@ -195,27 +214,28 @@ class SvitloLiveCard extends HTMLElement {
 
       // History Label Logic
       if (historyLabelEl && schedule.length === 48) {
-        const now = new Date();
-        const currentIndex = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
-        let chIdx = currentIndex;
-        const targetState = isOffBySchedule ? 'off' : 'on';
+        const kyivTime = new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" });
+        const kyivDate = new Date(kyivTime);
+        const hours = kyivDate.getHours();
+        const minutes = kyivDate.getMinutes();
+        const currentIndex = hours * 2 + (minutes >= 30 ? 1 : 0);
 
-        while (chIdx > 0 && schedule[chIdx - 1] === targetState) chIdx--;
+        const scheduleState = schedule[currentIndex];
+        const actualState = isOffBySchedule ? 'off' : 'on';
+        const isFactMismatch = scheduleState !== actualState;
 
-        if (schedule[currentIndex] !== targetState && chIdx === currentIndex) {
-          for (let i = currentIndex; i >= 0; i--) {
-            if (schedule[i] === targetState) {
-              chIdx = i;
-              while (chIdx > 0 && schedule[chIdx - 1] === targetState) chIdx--;
-              break;
-            }
-          }
+        if (isFactMismatch) {
+          historyLabelEl.innerText = isOffBySchedule
+            ? `Відключено (за фактом)`
+            : `Світло є (поза графіком)`;
+        } else {
+          let chIdx = currentIndex;
+          while (chIdx > 0 && schedule[chIdx - 1] === actualState) chIdx--;
+          const time = `${Math.floor(chIdx / 2).toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
+          historyLabelEl.innerText = isOffBySchedule
+            ? `Світла немає з ${time}`
+            : `Світло ввімкнули о ${time}`;
         }
-
-        const time = `${Math.floor(chIdx / 2).toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
-        historyLabelEl.innerText = isOffBySchedule
-          ? `Світла немає з ${time}`
-          : `Світло ввімкнули о ${time}`;
       }
 
       // Emergency Banner (Today ONLY)
@@ -230,6 +250,7 @@ class SvitloLiveCard extends HTMLElement {
         if (emEid) isEmergency = hass.states[emEid].state === 'on';
       }
       if (eb) eb.style.display = isEmergency ? 'block' : 'none';
+
     } else {
       // Status Tomorrow
       if (statusEl) {
@@ -241,13 +262,15 @@ class SvitloLiveCard extends HTMLElement {
       if (eb) eb.style.display = 'none';
     }
 
-    // Marker
+    // Marker (using Kyiv time)
     const nowMarker = this.querySelector('#now-marker');
     if (nowMarker) {
       if (isToday) {
-        const now = new Date();
+        const kyivTime = new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" });
+        const kyivDate = new Date(kyivTime);
+        const minsSinceMidnight = kyivDate.getHours() * 60 + kyivDate.getMinutes();
         nowMarker.style.display = 'block';
-        nowMarker.style.left = `${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%`;
+        nowMarker.style.left = `${(minsSinceMidnight / 1440) * 100}%`;
       } else {
         nowMarker.style.display = 'none';
       }
