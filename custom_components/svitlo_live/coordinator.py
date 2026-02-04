@@ -146,6 +146,26 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today_half = build_half_list(slots_today_map)
         tomorrow_half = build_half_list(slots_tomorrow_map) if slots_tomorrow_map else []
 
+        # --- Statistics calculation ---
+        today_outage_hours = today_half.count("off") * 0.5
+        tomorrow_outage_hours = tomorrow_half.count("off") * 0.5 if tomorrow_half else None
+
+        def get_longest_consecutive_off(series: list[str]) -> float:
+            max_count = 0
+            current_count = 0
+            for state in series:
+                if state == "off":
+                    current_count += 1
+                else:
+                    max_count = max(max_count, current_count)
+                    current_count = 0
+            max_count = max(max_count, current_count)
+            return max_count * 0.5
+
+        # Longest outage can span across today and tomorrow if available
+        combined_half = today_half + (tomorrow_half or [])
+        longest_outage = get_longest_consecutive_off(combined_half)
+
         now_local = dt_util.now(TZ_KYIV)
         base_day = datetime.fromisoformat(date_today).date() if date_today else now_local.date()
         
@@ -178,6 +198,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
             "is_emergency": is_emergency,
+            "today_outage_hours": today_outage_hours,
+            "tomorrow_outage_hours": tomorrow_outage_hours,
+            "longest_outage_hours": longest_outage,
         }
 
         if date_tomorrow and tomorrow_half:

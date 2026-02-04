@@ -181,7 +181,8 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
     def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {(DOMAIN, f"{self._region}_{self._queue}")},
-            "manufacturer": "svitlo.live",
+            "manufacturer": "Serhii Chaichuk",
             "model": f"Queue {self._queue}",
             "name": f"Svitlo • {self._region} / {self._queue}",
+            "configuration_url": "https://github.com/chaichuk",
         }

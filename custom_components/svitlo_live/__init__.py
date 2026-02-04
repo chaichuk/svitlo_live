@@ -24,6 +24,16 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Svitlo Live component."""
     await hass.async_add_executor_job(_copy_blueprints, hass)
+    
+    # Реєстрація статичних ресурсів для Lovelace картки
+    www_path = Path(__file__).parent / "www"
+    if www_path.exists():
+        hass.http.register_static_path(
+            "/svitlo_live_static",
+            str(www_path),
+            cache_headers=False
+        )
+    
     return True
 
 

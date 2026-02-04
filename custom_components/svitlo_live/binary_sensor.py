@@ -35,9 +35,10 @@ class SvitloBaseEntity(CoordinatorEntity):
         queue = getattr(self.coordinator, "queue", "queue")
         return {
             "identifiers": {(DOMAIN, f"{region}_{queue}")},
-            "manufacturer": "svitlo.live",
+            "manufacturer": "Serhii Chaichuk",
             "model": f"Queue {queue}",
             "name": f"Svitlo • {region} / {queue}",
+            "configuration_url": "https://github.com/chaichuk",
         }
 
     @property

@@ -390,10 +390,4 @@ action:
     target:
       entity_id: !input storage_helper
     data:
-      value: >-
-        {% set sig = schedule_signature[-250:] %}
-        {% if is_emergency %}
-          !E!{{ sig }}
-        {% else %}
-          {{ sig }}
-        {% endif %}
+      value: "{% set sig = schedule_signature[-250:] %}{% if is_emergency %}!E!{{ sig }}{% else %}{{ sig }}{% endif %}"
