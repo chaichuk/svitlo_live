@@ -112,13 +112,13 @@ class SvitloLiveCard extends HTMLElement {
             </div>
 
             <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center;">
-                <div id="total-label" style="font-size: 12px; opacity: 0.7; margin-bottom: 4px; line-height: 1;">Всього без світла</div>
-                <div id="total-hours" style="font-size: 16px; font-weight: bold; line-height: 1;">- год</div>
+              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; min-height: 56px; box-sizing: border-box;">
+                <div id="total-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.2;">Всього без світла</div>
+                <div id="total-hours" style="font-size: 16px; font-weight: bold; line-height: 1.1;">- год</div>
               </div>
-              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center;">
-                <div id="next-change-label" style="font-size: 11px; opacity: 0.7; height: 1.25em; overflow: hidden; white-space: nowrap;">Наступна зміна</div>
-                <div id="next-change" style="font-size: 16px; font-weight: bold; line-height: 1;">-:-</div>
+              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; min-height: 56px; box-sizing: border-box;">
+                <div id="next-change-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.2;">Наступна зміна</div>
+                <div id="next-change" style="font-size: 16px; font-weight: bold; line-height: 1.1;">-:-</div>
               </div>
             </div>
           </div>
@@ -158,11 +158,18 @@ class SvitloLiveCard extends HTMLElement {
     const tabs = this.querySelectorAll('.day-tab');
     tabs.forEach(t => t.classList.toggle('active', t.dataset.day === this._selectedDay));
 
-    // Show tomorrow tab if data exists
-    const tomorrowTab = this.querySelector('#tomorrow-tab');
+    // Show switcher only if tomorrow data exists
+    const daySwitcher = this.querySelector('#day-switcher');
     const tomorrowSch = attrs.tomorrow_48half || [];
+    const hasTomorrow = tomorrowSch.length === 48;
+
+    if (daySwitcher) {
+      daySwitcher.style.display = hasTomorrow ? 'flex' : 'none';
+    }
+
+    const tomorrowTab = this.querySelector('#tomorrow-tab');
     if (tomorrowTab) {
-      tomorrowTab.style.display = (tomorrowSch.length === 48) ? 'block' : 'none';
+      tomorrowTab.style.display = hasTomorrow ? 'block' : 'none';
     }
 
     // Header Title
