@@ -40,16 +40,15 @@ class SvitloLiveCardEditor extends HTMLElement {
             <option value="">Завантаження списку...</option>
           </select>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Власний сенсор статусу (напр. розетка або input_boolean):</label>
-          <div id="status-picker-container" style="min-height: 50px; margin: 4px 0;">
-            <div style="font-size: 12px; opacity: 0.5; padding: 10px; border: 1px dashed rgba(127,127,127,0.3); border-radius: 8px;">
-              Завантаження вибору сутностей...
-            </div>
-          </div>
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Власний сенсор статусу (напр. розетка):</label>
+          <div id="status-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
           <ha-formfield label="Використовувати цей сенсор як основний пріоритет" style="display: flex; align-items: center;">
             <ha-switch id="priority-switch"></ha-switch>
           </ha-formfield>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор екстрених відключень (необов'язково):</label>
+          <div id="emergency-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
           <ha-formfield label="Динамічний таймлайн (показувати наступні 24 години, якщо графік опубліковано)" style="display: flex; align-items: center; margin-top: 8px;">
             <ha-switch id="dynamic-switch"></ha-switch>
@@ -61,7 +60,7 @@ class SvitloLiveCardEditor extends HTMLElement {
         </div>
       `;
 
-      this._setupPicker();
+      this._setupPickers();
       this._setupEventListeners();
       this._initialized = true;
     }
@@ -88,19 +87,34 @@ class SvitloLiveCardEditor extends HTMLElement {
     this._updateProperties();
   }
 
-  _setupPicker() {
-    const container = this.querySelector("#status-picker-container");
-    if (!container) return;
-    const selector = document.createElement("ha-selector");
-    selector.id = "status-selector";
-    selector.style.width = "100%";
-    selector.style.display = "block";
-    selector.selector = { entity: { domain: ['binary_sensor', 'sensor', 'switch', 'input_boolean'] } };
-    selector.addEventListener("value-changed", (ev) => {
-      this._valueChanged({ target: { configValue: 'status_entity', value: ev.detail.value } });
-    });
-    container.innerHTML = "";
-    container.appendChild(selector);
+  _setupPickers() {
+    // Status Picker
+    const statusContainer = this.querySelector("#status-picker-container");
+    if (statusContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['binary_sensor', 'sensor', 'switch', 'input_boolean'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'status_entity', value: ev.detail.value } });
+      });
+      statusContainer.innerHTML = "";
+      statusContainer.appendChild(selector);
+      this._statusSelector = selector;
+    }
+
+    // Emergency Picker
+    const emergencyContainer = this.querySelector("#emergency-picker-container");
+    if (emergencyContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['binary_sensor', 'input_boolean', 'switch', 'sensor'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'emergency_entity', value: ev.detail.value } });
+      });
+      emergencyContainer.innerHTML = "";
+      emergencyContainer.appendChild(selector);
+      this._emergencySelector = selector;
+    }
   }
 
   _setupEventListeners() {
@@ -124,8 +138,16 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (!this._hass || !this._config) return;
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.value = this._config.title || '';
-    const statusSelector = this.querySelector("#status-selector");
-    if (statusSelector) { statusSelector.hass = this._hass; statusSelector.value = this._config.status_entity || ''; }
+
+    if (this._statusSelector) {
+      this._statusSelector.hass = this._hass;
+      this._statusSelector.value = this._config.status_entity || '';
+    }
+
+    if (this._emergencySelector) {
+      this._emergencySelector.hass = this._hass;
+      this._emergencySelector.value = this._config.emergency_entity || '';
+    }
 
     const ps = this.querySelector("#priority-switch");
     if (ps) ps.checked = this._config.use_status_entity || false;
@@ -179,7 +201,7 @@ class SvitloLiveCard extends HTMLElement {
               📢 УВАГА! ДІЮТЬ ЕКСТРЕНІ ВІДКЛЮЧЕННЯ!
             </div>
             
-            <div style="margin-bottom: 10px;">
+            <div style="margin-bottom: 4px;">
               <div id="timeline" style="
                   height: 38px; 
                   display: flex; 
@@ -207,7 +229,7 @@ class SvitloLiveCard extends HTMLElement {
                   margin-top: 2px; 
               "></div>
               
-              <div id="ruler" style="height: 32px; position: relative; font-size: 10px; opacity: 0.6; margin-top: 6px; font-family: monospace;">
+              <div id="ruler" style="height: 32px; position: relative; font-size: 10px; opacity: 0.6; margin-top: 2px; font-family: monospace;">
               </div>
             </div>
 
@@ -318,7 +340,6 @@ class SvitloLiveCard extends HTMLElement {
 
     let schedule = [];
     let startOffsetIdx = 0;
-
     const LOOKBACK_SLOTS = 3;
 
     if (isDynamic) {
@@ -377,8 +398,12 @@ class SvitloLiveCard extends HTMLElement {
         }
       }
 
+      // Emergency Banner Logic
       let isEmergency = false;
-      if (attrs.region && attrs.queue) {
+      if (config.emergency_entity) {
+        const emState = hass.states[config.emergency_entity];
+        if (emState && (emState.state === 'on' || emState.state === 'true')) isEmergency = true;
+      } else if (attrs.region && attrs.queue) {
         const emEid = Object.keys(hass.states).find(eid => eid.includes('emergency') && hass.states[eid].attributes?.region === attrs.region && hass.states[eid].attributes?.queue === attrs.queue);
         if (emEid) isEmergency = hass.states[emEid].state === 'on';
       }
@@ -429,8 +454,9 @@ class SvitloLiveCard extends HTMLElement {
       let lastOccupiedPos = -20, currentLevel = 0;
       let lastLabelElement = null;
       let lastLabelIndex = -100;
+      let isPrevStart = false;
 
-      // Identify first and last changes for hiding edges
+      // 1. Calculate change indices to decide on Hiding Edges
       let firstChangeIdx = -1, lastChangeIdx = -1;
       schedule.forEach((state, i) => {
         if (i > 0 && schedule[i] !== schedule[i - 1]) {
@@ -439,34 +465,42 @@ class SvitloLiveCard extends HTMLElement {
         }
       });
 
-      const addLabel = (text, pos, isRight = false, customShift = null) => {
+      const addLabel = (text, pos, type = 'normal', customShift = null) => {
+        // type: 'start', 'end', 'normal'
         const span = document.createElement('span');
         span.innerText = text;
         span.style.position = 'absolute';
         span.style.color = 'var(--secondary-text-color)';
 
-        if (isRight) span.style.right = '0';
-        else {
+        if (type === 'start') {
+          span.style.left = '0'; // Strict left 0
+          span.style.transform = 'none';
+        } else if (type === 'end') {
+          span.style.right = '0'; // Strict right 0
+          span.style.left = 'auto';
+          span.style.transform = 'none';
+        } else {
           span.style.left = `${pos}%`;
-          // Default center, or custom shift
           if (customShift) span.style.transform = `translateX(${customShift})`;
           else span.style.transform = 'translateX(-50%)';
         }
 
+        // COLLISION LOGIC
         const distToLast = Math.abs(pos - lastOccupiedPos);
-        const distToEdge = Math.min(pos, 100 - pos);
 
-        // COLLISION LOGIC 
-        // If distance is less than ~7% (approx 3 slots/1.5h), stagger.
-        // But if we used the "Spread" logic (2h), we want them on Level 0.
-        // We handle 2h logic before calling this function, so if we are here,
-        // we check collision.
+        // Don't check collision for Start (always 0)
+        // For others, if dist < 7% (approx 1.5h), drop to level 1
+        // Unless it's shifted (then we assume level 0 is intended)
 
-        // Note: if customShift is used, we likely want level 0
-        if (!customShift && pos !== 0 && pos !== 100 && (distToLast < 7 || distToEdge < 4)) {
+        if (type !== 'start' && !customShift && pos !== 0 && pos !== 100 && distToLast < 7) {
           currentLevel = (currentLevel === 0) ? 1 : 0;
         } else {
           currentLevel = 0;
+        }
+
+        // Safety for end label
+        if (type === 'end' && distToLast < 7) {
+          currentLevel = 1;
         }
 
         span.style.top = currentLevel === 0 ? '0' : '14px';
@@ -475,7 +509,25 @@ class SvitloLiveCard extends HTMLElement {
         return span;
       };
 
-      // Draw blocks and change labels
+      // 2. ADD START LABEL (Conditionally)
+      const startIdx = startOffsetIdx;
+      const startH = Math.floor(startIdx / 2);
+      const startM = startIdx % 2 === 0 ? '00' : '30';
+
+      let startLabelVisible = false;
+      // HIDE if first change is <= 4 slots (2 hours) from start
+      if (firstChangeIdx === -1 || firstChangeIdx > 4) {
+        lastLabelElement = addLabel(`${startH.toString().padStart(2, '0')}:${startM}`, 0, 'start');
+        isPrevStart = true;
+        startLabelVisible = true;
+        lastLabelIndex = -1; // logical start index
+      } else {
+        // If Start is hidden, reset trackers so first change behaves as "first"
+        lastLabelIndex = -100;
+        isPrevStart = false;
+      }
+
+      // 3. DRAW BLOCKS & CHANGE LABELS
       schedule.forEach((state, i) => {
         const b = document.createElement('div');
         b.className = 'timeline-block';
@@ -510,52 +562,58 @@ class SvitloLiveCard extends HTMLElement {
           const m = normalizedIdx % 2 === 0 ? '00' : '30';
           const pos = (i / totalSlots) * 100;
 
-          // Check gap from last label index (in slots)
-          const slotsGap = i - lastLabelIndex;
-
           let shiftCurrent = null;
 
-          // LOGIC:
-          // If gap is exactly 4 slots (2 hours): Spread them.
-          // Previous label moves Left (-75%), Current moves Right (-25%).
-          if (slotsGap === 4 && lastLabelElement) {
-            lastLabelElement.style.transform = 'translateX(-75%)'; // Move prev Left
-            lastLabelElement.style.top = '0'; // Ensure it's on top line
-            shiftCurrent = '-25%'; // Move current Right
+          // Only calculate Spread/Gap if we have a visible previous label
+          if (lastLabelIndex !== -100) {
+            let slotsGap;
+            if (isPrevStart) slotsGap = i; // Distance from 0
+            else slotsGap = i - lastLabelIndex;
+
+            // SPREAD LOGIC (2 HOURS = 4 SLOTS)
+            if (slotsGap === 4) {
+              if (isPrevStart) {
+                // Don't move Start. Move Current Right.
+                shiftCurrent = '-25%';
+              } else {
+                // Move Prev Left, Current Right
+                if (lastLabelElement) {
+                  lastLabelElement.style.transform = 'translateX(-75%)';
+                  lastLabelElement.style.top = '0';
+                }
+                shiftCurrent = '-25%';
+              }
+            }
           }
 
-          const newLabel = addLabel(`${h.toString().padStart(2, '0')}:${m}`, pos, false, shiftCurrent);
-
-          // If we shifted current, ensure it is also on top line
-          if (shiftCurrent) {
-            newLabel.style.top = '0';
-            // Update lastOccupiedPos to avoid next label checking collision against "shifted" pos incorrectly?
-            // Actually collision check uses percentage.
-          }
+          const newLabel = addLabel(`${h.toString().padStart(2, '0')}:${m}`, pos, 'normal', shiftCurrent);
+          if (shiftCurrent) newLabel.style.top = '0';
 
           lastLabelElement = newLabel;
           lastLabelIndex = i;
+          isPrevStart = false;
         }
       });
 
-      // Start Label
-      const startIdx = startOffsetIdx;
-      const startH = Math.floor(startIdx / 2);
-      const startM = startIdx % 2 === 0 ? '00' : '30';
-
-      // Hide if first change is within 6 slots (3 hours)
-      if (firstChangeIdx === -1 || firstChangeIdx > 6) {
-        addLabel(`${startH.toString().padStart(2, '0')}:${startM}`, 0);
-      }
-
-      // End Label
+      // 4. ADD END LABEL (Conditionally)
       const endIdx = (startOffsetIdx + totalSlots) % 48;
       const endH = Math.floor(endIdx / 2);
       const endM = endIdx % 2 === 0 ? '00' : '30';
 
-      // Hide if last change is within 6 slots (3 hours) of end
-      if (lastChangeIdx === -1 || (totalSlots - lastChangeIdx) > 6) {
-        addLabel(`${endH.toString().padStart(2, '0')}:${endM}`, 100, true);
+      // Check distance from last change to end
+      const distToEnd = totalSlots - lastLabelIndex;
+
+      // HIDE if last change is <= 4 slots (2 hours) from end
+      // Note: check lastChangeIdx != -1 to ensure there are changes
+      if (lastChangeIdx === -1 || (totalSlots - lastChangeIdx) > 4) {
+
+        // Apply spread logic if exactly 2 hours from last visible label
+        if (distToEnd === 4 && lastLabelElement) {
+          lastLabelElement.style.transform = 'translateX(-75%)';
+          lastLabelElement.style.top = '0';
+        }
+
+        addLabel(`${endH.toString().padStart(2, '0')}:${endM}`, 100, 'end');
       }
 
       // History

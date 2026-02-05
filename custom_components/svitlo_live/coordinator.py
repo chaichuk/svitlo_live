@@ -210,6 +210,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "longest_outage_hours": longest_outage,
             "history_today_48half": self._history_today,
             "history_tomorrow_48half": self._history_tomorrow,
+            "is_emergency": is_emergency,
         }
 
         # Update "history" (store up to 3 previous versions)

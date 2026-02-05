@@ -1,4 +1,4 @@
-from datetime import datetime
+
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -68,25 +68,7 @@ class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
             return True
         return None
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the state attributes."""
-        data = getattr(self.coordinator, "data", {}) or {}
-        return {
-            "region": getattr(self.coordinator, "region", ""),
-            "queue": getattr(self.coordinator, "queue", ""),
-            "now_status": data.get("now_status"),
-            "today_48half": data.get("today_48half", []),
-            "tomorrow_48half": data.get("tomorrow_48half", []),
-            "next_change_at": data.get("next_change_at"),
-            "today_outage_hours": data.get("today_outage_hours"),
-            "tomorrow_outage_hours": data.get("tomorrow_outage_hours"),
-            "longest_outage_hours": data.get("longest_outage_hours"),
-            "history_today_48half": data.get("history_today_48half", []),
-            "history_tomorrow_48half": data.get("history_tomorrow_48half", []),
-            "updated": data.get("updated"),
-            "status_raw": data.get("now_status"),
-        }
+
 
 
 class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
@@ -106,30 +88,7 @@ class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
             return None
         return data.get("is_emergency", False)
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the state attributes."""
-        data = getattr(self.coordinator, "data", {}) or {}
-        # Визначаємо поточний статус за графіком
-        now = datetime.now()
-        index = now.hour * 2 + (1 if now.minute >= 30 else 0)
-        today_sch = data.get("today_48half", [])
-        now_status = today_sch[index] if index < len(today_sch) else "unknown"
 
-        return {
-            "region": getattr(self.coordinator, "region", ""),
-            "queue": getattr(self.coordinator, "queue", ""),
-            "now_status": now_status,
-            "today_48half": today_sch,
-            "tomorrow_48half": data.get("tomorrow_48half", []),
-            "next_change_at": data.get("next_change_at"),
-            "today_outage_hours": data.get("today_outage_hours"),
-            "tomorrow_outage_hours": data.get("tomorrow_outage_hours"),
-            "longest_outage_hours": data.get("longest_outage_hours"),
-            "history_today_48half": data.get("history_today_48half", []),
-            "history_tomorrow_48half": data.get("history_tomorrow_48half", []),
-            "updated": data.get("updated"),
-        }
 
     @property
     def icon(self):
