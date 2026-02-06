@@ -831,10 +831,16 @@ class SvitloLiveCard extends HTMLElement {
       schedule.forEach((state, i) => {
         const absoluteIdx = startOffsetIdx + i;
         const isPastSlot = absoluteIdx < currentIdx;
+        const isCurrentSlot = absoluteIdx === currentIdx;
 
         // For past slots with calendar data, use actual outage status
         let displayState = state;
-        if (isPastSlot && config.actual_outage_calendar_entity && isToday) {
+
+        if (isCurrentSlot) {
+          // Current slot: use LIVE status (isOffCurrent) instead of schedule
+          // This allows "extending" the red/green bar based on reality
+          displayState = isOffCurrent ? 'off' : 'on';
+        } else if (isPastSlot && config.actual_outage_calendar_entity && isToday) {
           const actualOff = this._isSlotActuallyOff(absoluteIdx);
           if (actualOff !== null) {
             displayState = actualOff ? 'off' : 'on';
