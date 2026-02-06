@@ -352,7 +352,7 @@ action:
                         {% endif %}
                       title: "{{ final_title }}"
                       message: "{{ body_text }}"
-                      parse_mode: HTML
+                      parse_mode: html
             # Старий bot (без config_entry_id)
             default:
               - service: telegram_bot.send_message
@@ -365,7 +365,7 @@ action:
                     {% endif %}
                   title: "{{ final_title }}"
                   message: "{{ body_text }}"
-                  parse_mode: HTML
+                  parse_mode: html
 
       # 2.3) Persistent Notification
       - if:
