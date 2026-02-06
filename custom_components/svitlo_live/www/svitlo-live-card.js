@@ -57,6 +57,13 @@ class SvitloLiveCardEditor extends HTMLElement {
           <ha-formfield label="Показувати попередній графік (історію)" style="display: flex; align-items: center; margin-top: 8px;">
             <ha-switch id="history-switch"></ha-switch>
           </ha-formfield>
+
+          <ha-formfield label="Показувати статистику (години без світла, оновлення графіку)" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="stats-switch"></ha-switch>
+          </ha-formfield>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор оновлення графіку (необов'язково):</label>
+          <div id="schedule-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
         </div>
       `;
 
@@ -115,6 +122,20 @@ class SvitloLiveCardEditor extends HTMLElement {
       emergencyContainer.appendChild(selector);
       this._emergencySelector = selector;
     }
+
+    // Schedule Updated Picker
+    const scheduleContainer = this.querySelector("#schedule-picker-container");
+    if (scheduleContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['sensor'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'schedule_entity', value: ev.detail.value } });
+      });
+      scheduleContainer.innerHTML = "";
+      scheduleContainer.appendChild(selector);
+      this._scheduleSelector = selector;
+    }
   }
 
   _setupEventListeners() {
@@ -132,6 +153,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const historySwitch = this.querySelector("#history-switch");
     if (historySwitch) historySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_history', value: ev.target.checked } }));
+
+    const statsSwitch = this.querySelector("#stats-switch");
+    if (statsSwitch) statsSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_stats', value: ev.target.checked } }));
   }
 
   _updateProperties() {
@@ -157,6 +181,14 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const hs = this.querySelector("#history-switch");
     if (hs) hs.checked = this._config.show_history || false;
+
+    const ss = this.querySelector("#stats-switch");
+    if (ss) ss.checked = this._config.show_stats !== false; // default true
+
+    if (this._scheduleSelector) {
+      this._scheduleSelector.hass = this._hass;
+      this._scheduleSelector.value = this._config.schedule_entity || '';
+    }
   }
 
   _valueChanged(ev) {
@@ -181,99 +213,115 @@ class SvitloLiveCard extends HTMLElement {
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card style="overflow: hidden;">
+        <ha-card style="overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
           <div id="container" style="padding: 16px;">
             
-            <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-              <div style="display: flex; flex-direction: column; gap: 2px; max-width: 60%;">
-                <div id="title" style="font-size: 18px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Svitlo.live</div>
-                <div id="history-label" style="font-size: 11px; opacity: 0.6; white-space: nowrap; height: 1.2em;"></div>
+            <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+              <div style="display: flex; flex-direction: column; gap: 0px; max-width: 65%;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <ha-icon id="power-icon" icon="mdi:power-plug-off" style="display: none; color: #ef5350; --mdc-icon-size: 32px;"></ha-icon>
+                  <div id="title" style="font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.3px;">Svitlo.live</div>
+                </div>
+                <div id="history-label" style="font-size: 12px; opacity: 0.55; white-space: nowrap; font-weight: 500;"></div>
+                <div id="duration-label" style="font-size: 11px; opacity: 0.45; white-space: nowrap; font-weight: 500; display: none;"></div>
               </div>
-              <div id="status" style="font-size: 13px; padding: 4px 10px; border-radius: 4px; font-weight: bold; white-space: nowrap; align-self: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
+              <div style="display: flex; flex-direction: column; align-items: stretch; gap: 4px;">
+                <div id="status" style="font-size: 12px; padding: 4px 14px; border-radius: 8px; font-weight: 700; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15); text-transform: uppercase; letter-spacing: 0.3px; text-align: center;"></div>
+                <div id="emergency-banner" style="display: none; background: linear-gradient(135deg, #c62828 0%, #8e0000 100%); color: rgba(255,255,255,0.9); padding: 3px 14px; border-radius: 6px; font-size: 10px; font-weight: 600; text-align: center; animation: pulse 2s infinite; box-shadow: 0 2px 8px rgba(183, 28, 28, 0.4), inset 0 1px 0 rgba(255,255,255,0.1); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.2px;">
+                  📢 ЕКСТРЕНІ ВІДКЛЮЧЕННЯ
+                </div>
+              </div>
             </div>
 
-            <div id="day-switcher" style="display: flex; gap: 4px; border-radius: 6px; background: rgba(127,127,127,0.1); padding: 2px; margin-bottom: 12px; font-size: 11px; width: fit-content;">
-              <div class="day-tab active" data-day="today" style="padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: 0.2s;">Сьогодні</div>
-              <div class="day-tab" data-day="tomorrow" id="tomorrow-tab" style="padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: 0.2s; display: none;">Завтра</div>
-            </div>
-
-            <div id="emergency-banner" style="display: none; background: #bf360c; color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 12px; text-align: center; animation: pulse 2s infinite; border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 2px 5px rgba(191, 54, 12, 0.4);">
-              📢 УВАГА! ДІЮТЬ ЕКСТРЕНІ ВІДКЛЮЧЕННЯ!
+            <div id="day-switcher" style="display: flex; gap: 4px; border-radius: 10px; background: rgba(127,127,127,0.08); padding: 3px; margin-bottom: 14px; font-size: 12px; width: fit-content; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+              <div class="day-tab active" data-day="today" style="padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.25s ease; font-weight: 600;">Сьогодні</div>
+              <div class="day-tab" data-day="tomorrow" id="tomorrow-tab" style="padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.25s ease; display: none; font-weight: 600;">Завтра</div>
             </div>
             
-            <div style="margin-bottom: 4px;">
+            <div style="margin-bottom: 3px;">
               <div id="timeline" style="
-                  height: 38px; 
+                  height: 42px; 
                   display: flex; 
-                  border-radius: 8px; 
+                  border-radius: 12px; 
                   overflow: hidden; 
                   position: relative; 
-                  background: #1a1a1a; 
-                  border: 1px solid rgba(255,255,255,0.05);
-                  box-shadow: inset 0 2px 5px rgba(0,0,0,0.5); 
+                  background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%); 
+                  border: 1px solid rgba(255,255,255,0.08);
+                  box-shadow: 0 4px 15px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.4); 
                   z-index: 5;
               ">
                 <div id="now-marker" style="
                     position: absolute; 
                     top: 0; bottom: 0; 
-                    width: 2px; 
-                    background: #fff; 
-                    box-shadow: 0 0 8px rgba(255,255,255,0.8), 2px 0 4px rgba(0,0,0,0.5); 
+                    width: 3px; 
+                    background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.8) 100%); 
+                    box-shadow: 0 0 12px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.5); 
                     z-index: 10;
+                    border-radius: 2px;
                 "></div>
               </div>
               
               <div id="history-timeline" style="
                   display: none; 
                   flex-direction: column; 
-                  margin-top: 2px; 
+                  margin-top: 3px; 
               "></div>
               
-              <div id="ruler" style="height: 32px; position: relative; font-size: 10px; opacity: 0.6; margin-top: 2px; font-family: monospace;">
+              <div id="ruler" style="height: 30px; position: relative; font-size: 11px; opacity: 0.5; margin-top: 4px; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-weight: 500;">
               </div>
             </div>
 
-            <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px;">
               <div class="stat-item" style="
-                  background: rgba(127,127,127,0.05); 
-                  border: 1px solid rgba(127,127,127,0.1);
+                  background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
+                  border: 1px solid rgba(127,127,127,0.12);
                   padding: 6px 8px; 
-                  border-radius: 8px; 
+                  border-radius: 10px; 
                   display: flex; 
                   flex-direction: column; 
                   justify-content: center; 
                   align-items: center; 
                   min-height: 48px; 
                   text-align: center;
+                  gap: 2px;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
               ">
-                <div id="total-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.1;">Всього без світла</div>
-                <div id="total-hours" style="font-size: 16px; font-weight: bold; color: var(--primary-text-color); line-height: 1.1;">-- год</div>
+                <div id="total-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">Всього без світла</div>
+                <div id="total-hours" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">-- год</div>
               </div>
 
               <div class="stat-item" style="
-                  background: rgba(127,127,127,0.05); 
-                  border: 1px solid rgba(127,127,127,0.1);
+                  background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
+                  border: 1px solid rgba(127,127,127,0.12);
                   padding: 6px 8px; 
-                  border-radius: 8px; 
+                  border-radius: 10px; 
                   display: flex; 
                   flex-direction: column; 
                   justify-content: center; 
                   align-items: center; 
                   min-height: 48px; 
                   text-align: center;
+                  gap: 2px;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
               ">
-                <div id="next-change-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.1;">Наступна зміна</div>
-                <div id="next-change" style="font-size: 16px; font-weight: bold; color: var(--primary-text-color); line-height: 1.1;">--:--</div>
+                <div id="schedule-updated-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">Графік оновлено о:</div>
+                <div id="schedule-updated" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">--:--</div>
               </div>
             </div>
 
           </div>
           <style>
-            .day-tab.active { background: var(--primary-color, #03a9f4); color: #fff; }
-            .day-tab:not(.active):hover { background: rgba(127,127,127,0.2); }
+            .day-tab.active { 
+              background: var(--primary-color, #03a9f4); 
+              color: #fff; 
+              box-shadow: 0 2px 8px rgba(3, 169, 244, 0.4);
+            }
+            .day-tab:not(.active):hover { 
+              background: rgba(127,127,127,0.15); 
+            }
             @keyframes pulse {
               0% { opacity: 1; transform: scale(1); }
-              50% { opacity: 0.9; transform: scale(0.99); }
+              50% { opacity: 0.92; transform: scale(0.995); }
               100% { opacity: 1; transform: scale(1); }
             }
             .timeline-block {
@@ -283,8 +331,14 @@ class SvitloLiveCard extends HTMLElement {
                content: "";
                position: absolute;
                top: 0; left: 0; right: 0; bottom: 0;
-               background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0) 100%);
+               background: linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 50%);
                pointer-events: none;
+            }
+            .stat-item {
+               transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            .stat-item:active {
+               transform: scale(0.98);
             }
           </style>
         </ha-card>
@@ -383,18 +437,59 @@ class SvitloLiveCard extends HTMLElement {
         statusEl.style.color = '#fff';
       }
 
+      // Power icon and duration timer logic
+      const powerIcon = this.querySelector('#power-icon');
+      const durationLabel = this.querySelector('#duration-label');
+
       if (historyLabelEl && schedule.length >= 1) {
         const fullToday = attrs.today_48half || [];
+        let changeTime = null;
+
         if (config.use_status_entity && customStatusEntity) {
-          const lc = new Date(customStatusEntity.last_changed);
-          historyLabelEl.innerText = `${isOffCurrent ? 'Світла немає з' : 'Світло ввімкнули о'} ${lc.getHours().toString().padStart(2, '0')}:${lc.getMinutes().toString().padStart(2, '0')}`;
+          changeTime = new Date(customStatusEntity.last_changed);
+          historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${changeTime.getHours().toString().padStart(2, '0')}:${changeTime.getMinutes().toString().padStart(2, '0')}`;
         } else if (schedState !== (isOffCurrent ? 'off' : 'on')) {
           historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
         } else {
           let chIdx = currentIdx;
           const targetState = isOffCurrent ? 'off' : 'on';
           while (chIdx > 0 && fullToday[chIdx - 1] === targetState) chIdx--;
-          historyLabelEl.innerText = `${isOffCurrent ? 'Світла немає з' : 'Світло ввімкнули о'} ${Math.floor(chIdx / 2).toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
+          const chH = Math.floor(chIdx / 2);
+          const chM = chIdx % 2 === 0 ? 0 : 30;
+          changeTime = new Date(kyivDate);
+          changeTime.setHours(chH, chM, 0, 0);
+          historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${chH.toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
+        }
+
+        // Show power icon when power is off
+        if (powerIcon) {
+          powerIcon.style.display = isOffCurrent ? 'inline' : 'none';
+        }
+
+        // Duration timer
+        if (durationLabel && changeTime && isOffCurrent) {
+          durationLabel.style.display = 'block';
+
+          const updateDuration = () => {
+            const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+            const diffMs = now - changeTime;
+            const diffMins = Math.floor(diffMs / 60000);
+            const hours = Math.floor(diffMins / 60);
+            const mins = diffMins % 60;
+            durationLabel.innerText = `Тривалість: ${hours.toString().padStart(2, '0')} год ${mins.toString().padStart(2, '0')} хв`;
+          };
+
+          updateDuration();
+
+          // Clear previous interval if exists
+          if (this._durationInterval) clearInterval(this._durationInterval);
+          this._durationInterval = setInterval(updateDuration, 60000); // Update every minute
+        } else if (durationLabel) {
+          durationLabel.style.display = 'none';
+          if (this._durationInterval) {
+            clearInterval(this._durationInterval);
+            this._durationInterval = null;
+          }
         }
       }
 
@@ -515,8 +610,8 @@ class SvitloLiveCard extends HTMLElement {
       const startM = startIdx % 2 === 0 ? '00' : '30';
 
       let startLabelVisible = false;
-      // HIDE if first change is <= 4 slots (2 hours) from start
-      if (firstChangeIdx === -1 || firstChangeIdx > 4) {
+      // HIDE if first change is <= 6 slots (3 hours) from start
+      if (firstChangeIdx === -1 || firstChangeIdx > 6) {
         lastLabelElement = addLabel(`${startH.toString().padStart(2, '0')}:${startM}`, 0, 'start');
         isPrevStart = true;
         startLabelVisible = true;
@@ -570,18 +665,30 @@ class SvitloLiveCard extends HTMLElement {
             if (isPrevStart) slotsGap = i; // Distance from 0
             else slotsGap = i - lastLabelIndex;
 
-            // SPREAD LOGIC (2 HOURS = 4 SLOTS)
-            if (slotsGap === 4) {
+            // SPREAD LOGIC: spread labels when they are close
+            // <= 3 slots (1.5 hours): aggressive spread
+            // 4-6 slots (2-3 hours): moderate spread
+            if (slotsGap >= 2 && slotsGap <= 3) {
+              // 1-1.5 hour gap - spread aggressively
               if (isPrevStart) {
-                // Don't move Start. Move Current Right.
-                shiftCurrent = '-25%';
+                shiftCurrent = '-15%';
               } else {
-                // Move Prev Left, Current Right
                 if (lastLabelElement) {
-                  lastLabelElement.style.transform = 'translateX(-75%)';
+                  lastLabelElement.style.transform = 'translateX(-85%)';
                   lastLabelElement.style.top = '0';
                 }
-                shiftCurrent = '-25%';
+                shiftCurrent = '-15%';
+              }
+            } else if (slotsGap >= 4 && slotsGap <= 6) {
+              // 2-3 hour gap - spread moderately
+              if (isPrevStart) {
+                shiftCurrent = '-30%';
+              } else {
+                if (lastLabelElement) {
+                  lastLabelElement.style.transform = 'translateX(-70%)';
+                  lastLabelElement.style.top = '0';
+                }
+                shiftCurrent = '-30%';
               }
             }
           }
@@ -603,13 +710,18 @@ class SvitloLiveCard extends HTMLElement {
       // Check distance from last change to end
       const distToEnd = totalSlots - lastLabelIndex;
 
-      // HIDE if last change is <= 4 slots (2 hours) from end
+      // HIDE if last change is <= 6 slots (3 hours) from end
       // Note: check lastChangeIdx != -1 to ensure there are changes
-      if (lastChangeIdx === -1 || (totalSlots - lastChangeIdx) > 4) {
+      if (lastChangeIdx === -1 || (totalSlots - lastChangeIdx) > 6) {
 
-        // Apply spread logic if exactly 2 hours from last visible label
-        if (distToEnd === 4 && lastLabelElement) {
-          lastLabelElement.style.transform = 'translateX(-75%)';
+        // Apply spread logic for close labels
+        if (distToEnd >= 2 && distToEnd <= 3 && lastLabelElement) {
+          // 1-1.5 hour gap
+          lastLabelElement.style.transform = 'translateX(-85%)';
+          lastLabelElement.style.top = '0';
+        } else if (distToEnd >= 4 && distToEnd <= 6 && lastLabelElement) {
+          // 2-3 hour gap
+          lastLabelElement.style.transform = 'translateX(-70%)';
           lastLabelElement.style.top = '0';
         }
 
@@ -650,86 +762,48 @@ class SvitloLiveCard extends HTMLElement {
       }
     }
 
-    const offSlots = schedule.filter(s => s === 'off').length;
-    const hours = offSlots * 0.5;
-    const thv = this.querySelector('#total-hours');
-    if (thv) thv.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
+    // Stats visibility
+    const statsEl = this.querySelector('#stats');
+    const containerEl = this.querySelector('#container');
+    const showStats = config.show_stats !== false; // default true
 
-    const totalLabel = this.querySelector('#total-label');
-    if (totalLabel) totalLabel.innerText = isDynamic ? "У найближчі 24г" : "Всього за добу";
+    if (statsEl) statsEl.style.display = showStats ? 'grid' : 'none';
 
-    const ncl = this.querySelector('#next-change-label'), ncv = this.querySelector('#next-change');
-
-    let currentState, targetState;
-    let searchStartIndex = 0;
-    let baseDate = new Date(kyivDate);
-
-    if (isDynamic) {
-      const diff = currentIdx - startOffsetIdx;
-      if (schedule[diff]) {
-        currentState = schedule[diff];
-        targetState = (currentState === 'off') ? 'on' : 'off';
-        searchStartIndex = diff + 1;
-      }
-    } else if (isToday) {
-      if (schedule[currentIdx]) {
-        currentState = schedule[currentIdx];
-        targetState = (currentState === 'off') ? 'on' : 'off';
-        searchStartIndex = currentIdx + 1;
-      }
-    } else {
-      baseDate.setDate(baseDate.getDate() + 1);
-      currentState = schedule[0];
-      targetState = (currentState === 'off') ? 'on' : 'off';
-      searchStartIndex = 0;
+    // Adjust container padding based on stats visibility
+    if (containerEl) {
+      containerEl.style.paddingBottom = showStats ? '10px' : '3px';
     }
 
-    if (ncl && currentState) ncl.innerText = (currentState === 'off') ? 'Світло буде о:' : 'Світло вимкнуть о:';
+    if (showStats) {
+      const offSlots = schedule.filter(s => s === 'off').length;
+      const hours = offSlots * 0.5;
+      const thv = this.querySelector('#total-hours');
+      if (thv) thv.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
 
-    let foundIndex = -1;
-    if (currentState) {
-      for (let i = searchStartIndex; i < schedule.length; i++) {
-        if (schedule[i] === targetState) { foundIndex = i; break; }
+      const totalLabel = this.querySelector('#total-label');
+      if (totalLabel) totalLabel.innerText = isDynamic ? "У найближчі 24г" : "Всього за добу";
+
+      // Schedule updated display
+      const scheduleUpdatedEl = this.querySelector('#schedule-updated');
+      if (scheduleUpdatedEl && config.schedule_entity && hass.states[config.schedule_entity]) {
+        const scheduleState = hass.states[config.schedule_entity];
+        const lastChanged = new Date(scheduleState.last_changed);
+        const kyivTime = new Date(lastChanged.toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+        const hours = kyivTime.getHours().toString().padStart(2, '0');
+        const mins = kyivTime.getMinutes().toString().padStart(2, '0');
+        const day = kyivTime.getDate().toString().padStart(2, '0');
+        const month = (kyivTime.getMonth() + 1).toString().padStart(2, '0');
+
+        // Check if it's today
+        if (kyivTime.getDate() === kyivDate.getDate() && kyivTime.getMonth() === kyivDate.getMonth()) {
+          scheduleUpdatedEl.innerText = `${hours}:${mins}`;
+        } else {
+          scheduleUpdatedEl.innerText = `${hours}:${mins} ${day}.${month}`;
+        }
+      } else if (scheduleUpdatedEl) {
+        scheduleUpdatedEl.innerText = '--:--';
       }
-    }
-
-    let foundInTomorrowExtension = false;
-    let extTimeStr = "";
-
-    if (isToday && !isDynamic && foundIndex === -1 && hasTomorrow) {
-      const nextDayIndex = tomorrowSch.findIndex(s => s === targetState);
-      if (nextDayIndex !== -1) {
-        foundInTomorrowExtension = true;
-        const tD = new Date(kyivDate.getTime() + 86400000);
-        const dStr = tD.getDate().toString().padStart(2, '0');
-        const mStr = (tD.getMonth() + 1).toString().padStart(2, '0');
-        const yStr = tD.getFullYear();
-        const time = `${Math.floor(nextDayIndex / 2).toString().padStart(2, '0')}:${nextDayIndex % 2 === 0 ? "00" : "30"}`;
-        extTimeStr = `${time} ${dStr}.${mStr}.${yStr}`;
-      }
-    }
-
-    if (foundInTomorrowExtension) {
-      if (ncv) ncv.innerText = extTimeStr;
-    } else if (foundIndex !== -1) {
-      const absoluteIdx = startOffsetIdx + foundIndex;
-      const time = new Date(baseDate);
-      time.setHours(0, 0, 0, 0);
-      time.setMinutes(absoluteIdx * 30);
-
-      const dStr = time.getDate().toString().padStart(2, '0');
-      const mStr = (time.getMonth() + 1).toString().padStart(2, '0');
-      const yStr = time.getFullYear();
-      const tStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-
-      if (time.getDate() !== kyivDate.getDate()) {
-        if (ncv) ncv.innerText = `${tStr} ${dStr}.${mStr}.${yStr}`;
-      } else {
-        if (ncv) ncv.innerText = tStr;
-      }
-    } else {
-      if (ncv) ncv.innerText = '--:--';
-    }
+    } // end of if (showStats)
   }
 
   setConfig(config) { this.config = config; }
