@@ -58,9 +58,27 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="history-switch"></ha-switch>
           </ha-formfield>
 
-          <ha-formfield label="Показувати статистику (години без світла, оновлення графіку)" style="display: flex; align-items: center; margin-top: 8px;">
+          <ha-formfield label="Показувати статистику" style="display: flex; align-items: center; margin-top: 8px;">
             <ha-switch id="stats-switch"></ha-switch>
           </ha-formfield>
+
+          <div id="stat-type-selectors" style="display: none; margin-top: 8px; padding: 10px; background: rgba(127,127,127,0.05); border-radius: 8px;">
+            <label style="font-weight: bold; font-size: 13px;">Лівий блок:</label>
+            <select id="left-stat-type" style="width: 100%; padding: 8px; border-radius: 6px; margin: 4px 0 10px 0; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--divider-color);">
+              <option value="hours_without_light">Години без світла</option>
+              <option value="next_change">Світло буде/вимкнуть о:</option>
+              <option value="countdown">До включення/вимкнення</option>
+              <option value="schedule_updated">Графік оновлено о:</option>
+            </select>
+
+            <label style="font-weight: bold; font-size: 13px;">Правий блок:</label>
+            <select id="right-stat-type" style="width: 100%; padding: 8px; border-radius: 6px; margin: 4px 0 0 0; background: var(--card-background-color); color: var(--primary-text-color); border: 1px solid var(--divider-color);">
+              <option value="hours_without_light">Години без світла</option>
+              <option value="next_change">Світло буде/вимкнуть о:</option>
+              <option value="countdown">До включення/вимкнення</option>
+              <option value="schedule_updated">Графік оновлено о:</option>
+            </select>
+          </div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор оновлення графіку (необов'язково):</label>
           <div id="schedule-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
@@ -155,7 +173,19 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (historySwitch) historySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_history', value: ev.target.checked } }));
 
     const statsSwitch = this.querySelector("#stats-switch");
-    if (statsSwitch) statsSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_stats', value: ev.target.checked } }));
+    const statTypeSelectors = this.querySelector("#stat-type-selectors");
+    if (statsSwitch) {
+      statsSwitch.addEventListener("change", (ev) => {
+        this._valueChanged({ target: { configValue: 'show_stats', value: ev.target.checked } });
+        if (statTypeSelectors) statTypeSelectors.style.display = ev.target.checked ? 'block' : 'none';
+      });
+    }
+
+    const leftStatType = this.querySelector("#left-stat-type");
+    if (leftStatType) leftStatType.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'left_stat_type', value: ev.target.value } }));
+
+    const rightStatType = this.querySelector("#right-stat-type");
+    if (rightStatType) rightStatType.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'right_stat_type', value: ev.target.value } }));
   }
 
   _updateProperties() {
@@ -183,7 +213,17 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (hs) hs.checked = this._config.show_history || false;
 
     const ss = this.querySelector("#stats-switch");
-    if (ss) ss.checked = this._config.show_stats !== false; // default true
+    const showStats = this._config.show_stats !== false;
+    if (ss) ss.checked = showStats;
+
+    const statTypeSelectors = this.querySelector("#stat-type-selectors");
+    if (statTypeSelectors) statTypeSelectors.style.display = showStats ? 'block' : 'none';
+
+    const leftStatType = this.querySelector("#left-stat-type");
+    if (leftStatType) leftStatType.value = this._config.left_stat_type || 'hours_without_light';
+
+    const rightStatType = this.querySelector("#right-stat-type");
+    if (rightStatType) rightStatType.value = this._config.right_stat_type || 'schedule_updated';
 
     if (this._scheduleSelector) {
       this._scheduleSelector.hass = this._hass;
@@ -272,7 +312,7 @@ class SvitloLiveCard extends HTMLElement {
             </div>
 
             <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 2px;">
-              <div class="stat-item" style="
+              <div id="left-stat" class="stat-item" style="
                   background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
                   border: 1px solid rgba(127,127,127,0.12);
                   padding: 6px 8px; 
@@ -286,11 +326,11 @@ class SvitloLiveCard extends HTMLElement {
                   gap: 2px;
                   box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
               ">
-                <div id="total-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">Всього без світла</div>
-                <div id="total-hours" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">-- год</div>
+                <div id="left-stat-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">--</div>
+                <div id="left-stat-value" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">--</div>
               </div>
 
-              <div class="stat-item" style="
+              <div id="right-stat" class="stat-item" style="
                   background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
                   border: 1px solid rgba(127,127,127,0.12);
                   padding: 6px 8px; 
@@ -304,8 +344,8 @@ class SvitloLiveCard extends HTMLElement {
                   gap: 2px;
                   box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
               ">
-                <div id="schedule-updated-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">Графік оновлено о:</div>
-                <div id="schedule-updated" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">--:--</div>
+                <div id="right-stat-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">--</div>
+                <div id="right-stat-value" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">--</div>
               </div>
             </div>
 
@@ -775,34 +815,135 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     if (showStats) {
-      const offSlots = schedule.filter(s => s === 'off').length;
-      const hours = offSlots * 0.5;
-      const thv = this.querySelector('#total-hours');
-      if (thv) thv.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
+      const leftType = config.left_stat_type || 'hours_without_light';
+      const rightType = config.right_stat_type || 'schedule_updated';
 
-      const totalLabel = this.querySelector('#total-label');
-      if (totalLabel) totalLabel.innerText = isDynamic ? "У найближчі 24г" : "Всього за добу";
-
-      // Schedule updated display
-      const scheduleUpdatedEl = this.querySelector('#schedule-updated');
-      if (scheduleUpdatedEl && config.schedule_entity && hass.states[config.schedule_entity]) {
-        const scheduleState = hass.states[config.schedule_entity];
-        const lastChanged = new Date(scheduleState.last_changed);
-        const kyivTime = new Date(lastChanged.toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
-        const hours = kyivTime.getHours().toString().padStart(2, '0');
-        const mins = kyivTime.getMinutes().toString().padStart(2, '0');
-        const day = kyivTime.getDate().toString().padStart(2, '0');
-        const month = (kyivTime.getMonth() + 1).toString().padStart(2, '0');
-
-        // Check if it's today
-        if (kyivTime.getDate() === kyivDate.getDate() && kyivTime.getMonth() === kyivDate.getMonth()) {
-          scheduleUpdatedEl.innerText = `${hours}:${mins}`;
+      // Helper function to calculate next change info
+      const getNextChangeInfo = () => {
+        let currentState, targetState, searchStartIndex = 0;
+        if (isDynamic) {
+          const diff = currentIdx - startOffsetIdx;
+          if (schedule[diff]) {
+            currentState = schedule[diff];
+            targetState = (currentState === 'off') ? 'on' : 'off';
+            searchStartIndex = diff + 1;
+          }
+        } else if (isToday) {
+          if (schedule[currentIdx]) {
+            currentState = schedule[currentIdx];
+            targetState = (currentState === 'off') ? 'on' : 'off';
+            searchStartIndex = currentIdx + 1;
+          }
         } else {
-          scheduleUpdatedEl.innerText = `${hours}:${mins} ${day}.${month}`;
+          currentState = schedule[0];
+          targetState = (currentState === 'off') ? 'on' : 'off';
         }
-      } else if (scheduleUpdatedEl) {
-        scheduleUpdatedEl.innerText = '--:--';
-      }
+
+        let foundIndex = -1;
+        if (currentState) {
+          for (let i = searchStartIndex; i < schedule.length; i++) {
+            if (schedule[i] === targetState) { foundIndex = i; break; }
+          }
+        }
+
+        // Check tomorrow if not found
+        if (isToday && !isDynamic && foundIndex === -1 && hasTomorrow) {
+          const nextDayIndex = tomorrowSch.findIndex(s => s === targetState);
+          if (nextDayIndex !== -1) {
+            const tD = new Date(kyivDate.getTime() + 86400000);
+            const time = `${Math.floor(nextDayIndex / 2).toString().padStart(2, '0')}:${nextDayIndex % 2 === 0 ? "00" : "30"}`;
+            return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: `${time} ${tD.getDate().toString().padStart(2, '0')}.${(tD.getMonth() + 1).toString().padStart(2, '0')}` };
+          }
+        }
+
+        if (foundIndex !== -1) {
+          const absoluteIdx = startOffsetIdx + foundIndex;
+          const time = new Date(kyivDate);
+          time.setHours(0, 0, 0, 0);
+          time.setMinutes(absoluteIdx * 30);
+          const tStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+          if (time.getDate() !== kyivDate.getDate()) {
+            return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: `${tStr} ${time.getDate().toString().padStart(2, '0')}.${(time.getMonth() + 1).toString().padStart(2, '0')}` };
+          }
+          return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: tStr };
+        }
+        return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: '--:--' };
+      };
+
+      // Helper function to calculate countdown
+      const getCountdownInfo = () => {
+        const nextInfo = getNextChangeInfo();
+        if (nextInfo.value === '--:--') return { label: 'До зміни:', value: '--:--' };
+
+        // Parse time from nextInfo.value
+        const timeParts = nextInfo.value.split(' ')[0].split(':');
+        const nextTime = new Date(kyivDate);
+        nextTime.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
+
+        // If date is in value (e.g. "08:00 07.02"), adjust date
+        if (nextInfo.value.includes(' ') && nextInfo.value.split(' ').length > 1) {
+          const dateParts = nextInfo.value.split(' ')[1].split('.');
+          nextTime.setDate(parseInt(dateParts[0]));
+          nextTime.setMonth(parseInt(dateParts[1]) - 1);
+        }
+
+        const diffMs = nextTime - kyivDate;
+        if (diffMs < 0) return { label: nextInfo.label.replace(' о:', ''), value: '--:--' };
+
+        const diffMins = Math.floor(diffMs / 60000);
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        const label = nextInfo.label.includes('буде') ? 'До включення:' : 'До вимкнення:';
+        return { label, value: hours > 0 ? `${hours}г ${mins}хв` : `${mins} хв` };
+      };
+
+      // Render stat block
+      const renderStat = (type, labelEl, valueEl) => {
+        if (!labelEl || !valueEl) return;
+
+        switch (type) {
+          case 'hours_without_light': {
+            const offSlots = schedule.filter(s => s === 'off').length;
+            const hours = offSlots * 0.5;
+            labelEl.innerText = isDynamic ? "У найближчі 24г без світла" : "Всього за добу без світла";
+            valueEl.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
+            break;
+          }
+          case 'next_change': {
+            const info = getNextChangeInfo();
+            labelEl.innerText = info.label;
+            valueEl.innerText = info.value;
+            break;
+          }
+          case 'countdown': {
+            const info = getCountdownInfo();
+            labelEl.innerText = info.label;
+            valueEl.innerText = info.value;
+            break;
+          }
+          case 'schedule_updated': {
+            labelEl.innerText = 'Графік оновлено о:';
+            if (config.schedule_entity && hass.states[config.schedule_entity]) {
+              const scheduleState = hass.states[config.schedule_entity];
+              const lastChanged = new Date(scheduleState.last_changed);
+              const kyivTime = new Date(lastChanged.toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+              const h = kyivTime.getHours().toString().padStart(2, '0');
+              const m = kyivTime.getMinutes().toString().padStart(2, '0');
+              if (kyivTime.getDate() === kyivDate.getDate() && kyivTime.getMonth() === kyivDate.getMonth()) {
+                valueEl.innerText = `${h}:${m}`;
+              } else {
+                valueEl.innerText = `${h}:${m} ${kyivTime.getDate().toString().padStart(2, '0')}.${(kyivTime.getMonth() + 1).toString().padStart(2, '0')}`;
+              }
+            } else {
+              valueEl.innerText = '--:--';
+            }
+            break;
+          }
+        }
+      };
+
+      renderStat(leftType, this.querySelector('#left-stat-label'), this.querySelector('#left-stat-value'));
+      renderStat(rightType, this.querySelector('#right-stat-label'), this.querySelector('#right-stat-value'));
     } // end of if (showStats)
   }
 

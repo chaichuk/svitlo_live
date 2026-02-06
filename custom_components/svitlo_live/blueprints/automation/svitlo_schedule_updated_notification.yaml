@@ -60,6 +60,12 @@ blueprint:
       selector:
         text:
 
+    show_location:
+      name: Показувати локацію в повідомленнях
+      default: true
+      selector:
+        boolean:
+
     storage_helper:
       name: Helper для збереження
       description: "Text helper для збереження стану (обов'язково!)"
@@ -114,6 +120,7 @@ variables:
   send_on_first_run: !input send_on_first_run
   notify_emergency_changes: !input notify_emergency_changes
   quiet_mode: !input quiet_mode
+  show_location: !input show_location
 
   # Поточний статус аварії
   is_emergency: >-
@@ -248,17 +255,15 @@ action:
               {% else %}
                 ✅ Екстрені відключення завершено
               {% endif %}
-            {# Якщо просто оновився графік під час аварії #}
-            {% elif is_emergency %}
-               ⚠️ Оновлення графіку (під час аварії)
             {# Стандартний випадок #}
             {% else %}
               {{ base_title }}
             {% endif %}
 
-          # Тіло повідомлення
           body: >-
+            {%- if show_location and location_name %}
             📍 {{ location_name }}
+            {%- endif %}
             {%- if is_emergency and notify_emergency_changes %}
             ⛔️ УВАГА! Діють екстрені відключення.
             {%- endif %}
@@ -281,9 +286,10 @@ action:
             ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
             {%- endfor %}
             {%- endif %}
-          # HTML версія
           body_text: |-
+            {%- if show_location and location_name %}
             📍 {{ location_name }}
+            {%- endif %}
             {%- if is_emergency and notify_emergency_changes %}
             🚨 <b>УВАГА! Введено екстрені відключення!</b>
             Графіки можуть не діяти.
