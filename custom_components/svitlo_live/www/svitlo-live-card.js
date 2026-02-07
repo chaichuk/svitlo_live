@@ -660,6 +660,8 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     let schedule = [];
+    let isOffCurrent = false;
+    let currentSlotState = 'unknown';
     let startOffsetIdx = 0;
     const LOOKBACK_SLOTS = 3;
 
@@ -711,27 +713,34 @@ class SvitloLiveCard extends HTMLElement {
       // toLocalDisplay(2) -> Local 00:00. Correct.
     }
 
-    let isOffCurrent = false;
-
     if (isToday || isDynamic) {
       const schedState = (attrs.today_48half && attrs.today_48half[currentIdx]) ? attrs.today_48half[currentIdx] : 'unknown';
+
+      const isUnknown = (schedState === 'unknown' || schedState === 'nosched' || !schedState);
       isOffCurrent = (schedState === 'off');
 
-      let statusLabel = isOffCurrent ? 'ПЛАНОВЕ ВІДКЛЮЧЕННЯ' : 'Є СВІТЛО';
-      let statusColor = isOffCurrent ? '#bf360c' : '#1b5e20';
+      let statusLabel = isOffCurrent ? 'ПЛАНОВЕ ВІДКЛЮЧЕННЯ' : (isUnknown ? 'НЕВІДОМО' : 'Є СВІТЛО');
+      let statusColor = isOffCurrent ? '#bf360c' : (isUnknown ? '#222' : '#1b5e20');
 
-      // Initialize renderLiveOff with base scheduled status
+      // Track the actual state for the current slot (on, off, unknown)
+      currentSlotState = isUnknown ? 'unknown' : (isOffCurrent ? 'off' : 'on');
+
+      // Initialize renderLiveOff with base scheduled status (Legacy, we will use currentSlotState mainly)
       renderLiveOff = isOffCurrent;
 
       if (customStatusEntity) {
         const cs = customStatusEntity.state;
         const isOffFact = (cs === 'off' || cs === 'Grid OFF' || cs === 'Grid-OFF' || cs === 'unavailable' || cs === '0');
+        // If entity is unavailable/unknown? For now assume off if explicitly OFF, otherwise ON? 
+        // Or keep unknown? Custom Entity usually binary. 
+        // Let's stick to existing logic for custom entity override.
 
         if (config.use_status_entity) {
           isOffCurrent = isOffFact;
           // Only colour the timeline (current slot) if history is enabled
           if (config.show_actual_history === true) {
             renderLiveOff = isOffFact;
+            currentSlotState = isOffFact ? 'off' : 'on';
           }
           statusLabel = isOffFact ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО';
           statusColor = isOffFact ? '#7f0000' : '#1b5e20';
@@ -761,6 +770,8 @@ class SvitloLiveCard extends HTMLElement {
           } else {
             historyLabelEl.innerText = '';
           }
+        } else if (isUnknown) {
+          historyLabelEl.innerText = '';
         } else if (schedState !== (isOffCurrent ? 'off' : 'on')) {
           if (config.show_change_time !== false) {
             historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
@@ -776,6 +787,13 @@ class SvitloLiveCard extends HTMLElement {
           if (config.show_change_time !== false) {
             const local = toLocalDisplay(chIdx);
             historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${local.time}`;
+
+            // Set changeTime for duration calculation
+            // We need to construct a Date object for the change time today
+            const now = new Date();
+            changeTime = new Date(now);
+            changeTime.setHours(local.date.getHours(), local.date.getMinutes(), 0, 0);
+
           } else {
             historyLabelEl.innerText = '';
           }
@@ -783,7 +801,7 @@ class SvitloLiveCard extends HTMLElement {
 
         // Show power icon when power is off
         if (powerIcon) {
-          powerIcon.style.display = isOffCurrent ? 'inline' : 'none';
+          powerIcon.style.display = (isOffCurrent && !isUnknown) ? 'inline' : 'none';
         }
 
         // Duration timer
@@ -902,7 +920,11 @@ class SvitloLiveCard extends HTMLElement {
               histSlice.forEach((s, idx) => {
                 const b = document.createElement('div');
                 b.style.flex = '1';
-                b.style.background = s === 'off' ? 'rgba(255, 82, 82, 0.4)' : 'rgba(105, 240, 174, 0.4)';
+
+                if (s === 'off') b.style.background = 'rgba(255, 82, 82, 0.4)';
+                else if (s === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.1)';
+                else b.style.background = 'rgba(105, 240, 174, 0.4)';
+
                 b.style.borderRight = '1px solid rgba(0,0,0,0.1)';
                 row.appendChild(b);
               });
@@ -1076,25 +1098,14 @@ class SvitloLiveCard extends HTMLElement {
         let displayState = state;
 
 
-        if (isCurrentSlot) {
+        if (isCurrentSlot && typeof currentSlotState !== 'undefined') {
           // Current slot: use LIVE status 
-          displayState = renderLiveOff ? 'off' : 'on';
+          displayState = currentSlotState;
         } else if (isPastSlot && config.actual_outage_calendar_entity && isToday && config.show_actual_history !== false) {
+          // ... existing logic ...
           const actualOff = this._isSlotActuallyOff(absoluteIdx);
           if (actualOff !== null) {
             displayState = actualOff ? 'off' : 'on';
-          } else if (config.use_status_entity && customStatusEntity && customStatusEntity.last_changed) {
-            // Gap filling logic...
-            // ... existing gap fill omitted for brevity if needed ...
-            // ACTUALLY: Gap fill is handled by overlay/changeSlotIdx logic better now?
-            // But keep existing for safety.
-            try {
-              const lastChanged = new Date(customStatusEntity.last_changed);
-              if (!isNaN(lastChanged.getTime()) && rulerChangeTime) {
-                // Check if inside slot
-                // ...
-              }
-            } catch (e) { }
           }
         }
 
@@ -1103,17 +1114,24 @@ class SvitloLiveCard extends HTMLElement {
         // The overlay (red/green) will paint the CURRENT state from the exact time.
         // So 07:00-07:09 will be green (previous), 07:09-07:30 red (overlay).
         if (absoluteIdx === changeSlotIdx) {
-          // Previous state is opposite of current live state
-          // If current is OFF, previous was ON.
-          // So we force 'on'.
-          displayState = isOffCurrent ? 'on' : 'off';
+          if (displayState !== 'unknown') {
+            displayState = isOffCurrent ? 'on' : 'off';
+          }
         }
 
         const b = document.createElement('div');
         b.className = 'timeline-block';
         b.style.flex = '1';
         b.style.height = '100%';
-        b.style.background = displayState === 'off' ? '#7f0000' : '#1b5e20';
+
+        // Color logic
+        if (displayState === 'off') {
+          b.style.background = '#7f0000';
+        } else if (displayState === 'unknown' || displayState === 'nosched' || !displayState) {
+          b.style.background = 'rgba(255, 255, 255, 0.05)'; // Very faint or black
+        } else {
+          b.style.background = '#1b5e20';
+        }
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.05)' : 'none';
         timelineEl.appendChild(b);
 
@@ -1370,7 +1388,11 @@ class SvitloLiveCard extends HTMLElement {
               const hb = document.createElement('div');
               hb.style.flex = '1';
               hb.style.height = '100%';
-              hb.style.background = state === 'off' ? '#7f0000' : '#1b5e20';
+
+              if (state === 'off') hb.style.background = '#7f0000';
+              else if (state === 'unknown') hb.style.background = 'rgba(255,255,255,0.1)';
+              else hb.style.background = '#1b5e20';
+
               hb.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.05)' : 'none';
               row.appendChild(hb);
             });
@@ -1509,9 +1531,11 @@ class SvitloLiveCard extends HTMLElement {
               overlay.style.width = `${widthPercent}%`;
               overlay.style.top = '0';
               overlay.style.bottom = '0';
-              // Color based on CURRENT state (isOffCurrent)
-              // If current is OFF -> Red. If ON -> Green.
-              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
+              // Color based on CURRENT state
+              if (currentSlotState === 'off') overlay.style.background = '#7f0000';
+              else if (currentSlotState === 'unknown') overlay.style.background = 'rgba(255,255,255,0.1)';
+              else overlay.style.background = '#1b5e20';
+
               overlay.style.opacity = '1'; // Full opacity to cover schedule
               overlay.style.zIndex = '2'; // Top of actual timeline
               overlay.style.boxShadow = 'inset 1px 0 0 rgba(255,255,255,0.3)'; // Highlight start edge

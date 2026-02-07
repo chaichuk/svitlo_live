@@ -132,6 +132,13 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_on_at": None,
                 "next_off_at": None,
                 "is_emergency": is_emergency,
+                "today_outage_hours": None,
+                "tomorrow_outage_hours": None,
+                "longest_outage_hours": None,
+                "history_today_48half": [],
+                "history_tomorrow_48half": [],
+                "tomorrow_date": None,
+                "tomorrow_48half": [],
              }
 
         def build_half_list(slots_map: dict[str, int]) -> list[str]:

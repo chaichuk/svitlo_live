@@ -64,7 +64,7 @@ class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
         val = data.get("now_status")
         if val == "off":
             return False
-        if val in ("on", "nosched"):
+        if val == "on":
             return True
         return None
 
