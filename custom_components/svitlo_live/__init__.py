@@ -7,7 +7,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import device_registry as dr  # <--- Додано для роботи з девайсами
+from homeassistant.helpers import device_registry as dr
+from homeassistant.components.http import StaticPathConfig
 
 from .const import (
     DOMAIN,
@@ -24,7 +25,39 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Svitlo Live component."""
     await hass.async_add_executor_job(_copy_blueprints, hass)
+    
+    # Реєстрація статичних ресурсів для Lovelace картки
+    www_path = Path(__file__).parent / "www"
+    if www_path.exists():
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig("/svitlo_live_static", str(www_path), False)]
+        )
+        # Спроба автоматичної реєстрації ресурсу в Lovelace
+        hass.async_create_task(_async_register_lovelace_resource(hass))
+    
     return True
+
+
+async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
+    """Register Lovelace resource automatically."""
+    url = "/svitlo_live_static/svitlo-live-card.js"
+    
+    # Перевіряємо завантажені модулі Lovelace
+    lovelace = hass.data.get("lovelace")
+    if not lovelace:
+        return
+
+    # Якщо використовується storage mode
+    if hasattr(lovelace, "resources"):
+        resources = lovelace.resources
+        if not resources.loaded:
+            await resources.async_load()
+        
+        # Перевірка чи вже є такий URL
+        exists = any(res.get("url") == url for res in resources.async_items())
+        if not exists:
+            _LOGGER.debug("Registering Svitlo Live card resource automatically")
+            await resources.async_create_item({"res_type": "module", "url": url})
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

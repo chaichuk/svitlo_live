@@ -28,6 +28,9 @@ async def async_setup_entry(
         SvitloNextPowerOn(coordinator),
         SvitloNextPowerOff(coordinator),
         SvitloScheduleUpdatedSensor(coordinator),
+        SvitloOutageHoursToday(coordinator),
+        SvitloOutageHoursTomorrow(coordinator),
+        SvitloLongestOutage(coordinator),
     ]
     async_add_entities(entities)
 
@@ -48,15 +51,16 @@ class SvitloBaseEntity(CoordinatorEntity, SensorEntity):
         queue = getattr(self.coordinator, "queue", "queue")
         return {
             "identifiers": {(DOMAIN, f"{region}_{queue}")},
-            "manufacturer": "svitlo.live",
+            "manufacturer": "Serhii Chaichuk",
             "model": f"Queue {queue}",
             "name": f"Svitlo • {region} / {queue}",
+            "configuration_url": "https://github.com/chaichuk",
         }
 
 
 class SvitloStatusSensor(SvitloBaseEntity):
     """Головний сенсор статусу."""
-    _attr_name = "Electricity" 
+    _attr_translation_key = "svitlo_status"
     _attr_icon = "mdi:transmission-tower"
 
     def __init__(self, coordinator) -> None:
@@ -77,15 +81,32 @@ class SvitloStatusSensor(SvitloBaseEntity):
             return "Grid ON"
         if val == "off":
             return "Grid OFF"
-        if val == "nosched":
-            return "No schedules"
         return "No data"
+    
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the state attributes."""
+        data = getattr(self.coordinator, "data", {}) or {}
+        return {
+            "region": getattr(self.coordinator, "region", ""),
+            "queue": getattr(self.coordinator, "queue", ""),
+            "now_status": data.get("now_status"),
+            "today_48half": data.get("today_48half", []),
+            "tomorrow_48half": data.get("tomorrow_48half", []),
+            "next_change_at": data.get("next_change_at"),
+            "today_outage_hours": data.get("today_outage_hours"),
+            "tomorrow_outage_hours": data.get("tomorrow_outage_hours"),
+            "longest_outage_hours": data.get("longest_outage_hours"),
+            "history_today_48half": data.get("history_today_48half", []),
+            "history_tomorrow_48half": data.get("history_tomorrow_48half", []),
+            "updated": data.get("updated"),
+        }
 
 
 # ---------- TIMESTAMP сенсори ----------
 
 class SvitloNextGridConnectionSensor(SvitloBaseEntity):
-    _attr_name = "Next grid connection"
+    _attr_translation_key = "svitlo_next_grid"
     _attr_icon = "mdi:clock-check"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -105,7 +126,7 @@ class SvitloNextGridConnectionSensor(SvitloBaseEntity):
 
 
 class SvitloNextOutageSensor(SvitloBaseEntity):
-    _attr_name = "Next Outage"
+    _attr_translation_key = "svitlo_next_outage"
     _attr_icon = "mdi:clock-alert"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -167,7 +188,7 @@ class SecondsRemainEntity(SvitloBaseEntity):
 
 # Тут нові класи і нові unique_id, як хотів автор PR
 class SvitloNextPowerOn(SecondsRemainEntity):
-    _attr_name = "Next Power On"
+    _attr_translation_key = "svitlo_next_power_on"
     _attr_icon = "mdi:lightbulb-on"
 
     def __init__(self, coordinator) -> None:
@@ -186,7 +207,7 @@ class SvitloNextPowerOn(SecondsRemainEntity):
 
 
 class SvitloNextPowerOff(SecondsRemainEntity):
-    _attr_name = "Next Power Off"
+    _attr_translation_key = "svitlo_next_power_off"
     _attr_icon = "mdi:lightbulb-off"
 
     def __init__(self, coordinator) -> None:
@@ -241,7 +262,7 @@ class _MinutesBase(SvitloBaseEntity):
 
 
 class SvitloMinutesToGridConnection(_MinutesBase):
-    _attr_name = "Minutes to grid connection"
+    _attr_translation_key = "svitlo_min_to_on"
     _attr_icon = "mdi:timer-sand"
 
     def __init__(self, coordinator) -> None:
@@ -259,7 +280,7 @@ class SvitloMinutesToGridConnection(_MinutesBase):
 
 
 class SvitloMinutesToOutage(_MinutesBase):
-    _attr_name = "Minutes to outage"
+    _attr_translation_key = "svitlo_min_to_off"
     _attr_icon = "mdi:timer-sand"
 
     def __init__(self, coordinator) -> None:
@@ -277,7 +298,7 @@ class SvitloMinutesToOutage(_MinutesBase):
 
 
 class SvitloScheduleUpdatedSensor(SvitloBaseEntity):
-    _attr_name = "Schedule Updated"
+    _attr_translation_key = "svitlo_updated"
     _attr_icon = "mdi:update"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -292,3 +313,62 @@ class SvitloScheduleUpdatedSensor(SvitloBaseEntity):
             return None
         iso_val = d.get("updated")
         return dt_util.parse_datetime(iso_val) if iso_val else None
+
+
+# ---------- СТАТИСТИКА ----------
+
+class SvitloOutageHoursToday(SvitloBaseEntity):
+    _attr_translation_key = "svitlo_outage_today"
+    _attr_icon = "mdi:clock-alert-outline"
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"svitlo_outage_today_{coordinator.region}_{coordinator.queue}"
+
+    @property
+    def native_value(self) -> Optional[float]:
+        d = getattr(self.coordinator, "data", None)
+        if not d or not getattr(self.coordinator, "last_update_success", False):
+            return None
+        return d.get("today_outage_hours")
+
+
+class SvitloOutageHoursTomorrow(SvitloBaseEntity):
+    _attr_translation_key = "svitlo_outage_tomorrow"
+    _attr_icon = "mdi:calendar-clock"
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"svitlo_outage_tomorrow_{coordinator.region}_{coordinator.queue}"
+
+    @property
+    def native_value(self) -> Optional[float]:
+        d = getattr(self.coordinator, "data", None)
+        if not d or not getattr(self.coordinator, "last_update_success", False):
+            return None
+        return d.get("tomorrow_outage_hours")
+
+
+class SvitloLongestOutage(SvitloBaseEntity):
+    _attr_translation_key = "svitlo_longest_outage"
+    _attr_icon = "mdi:clock-fast"
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"svitlo_longest_outage_{coordinator.region}_{coordinator.queue}"
+
+    @property
+    def native_value(self) -> Optional[float]:
+        d = getattr(self.coordinator, "data", None)
+        if not d or not getattr(self.coordinator, "last_update_success", False):
+            return None
+        return d.get("longest_outage_hours")

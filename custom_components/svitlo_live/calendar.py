@@ -32,7 +32,7 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
     
     # Використовуємо нову логіку імен (як в сенсорах)
     _attr_has_entity_name = True
-    _attr_name = "Outages Schedule"
+    _attr_translation_key = "svitlo_calendar"
     _attr_icon = "mdi:calendar-clock"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
@@ -178,10 +178,36 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
         )
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the state attributes."""
+        data = getattr(self.coordinator, "data", {}) or {}
+        # Визначаємо поточний статус за графіком (у часовій зоні Києва)
+        now = dt_util.now(TZ_KYIV)
+        index = now.hour * 2 + (1 if now.minute >= 30 else 0)
+        today_sch = data.get("today_48half", [])
+        now_status = today_sch[index] if index < len(today_sch) else "unknown"
+
+        return {
+            "region": getattr(self.coordinator, "region", ""),
+            "queue": getattr(self.coordinator, "queue", ""),
+            "now_status": now_status,
+            "today_48half": today_sch,
+            "tomorrow_48half": data.get("tomorrow_48half", []),
+            "next_change_at": data.get("next_change_at"),
+            "today_outage_hours": data.get("today_outage_hours"),
+            "tomorrow_outage_hours": data.get("tomorrow_outage_hours"),
+            "longest_outage_hours": data.get("longest_outage_hours"),
+            "history_today_48half": data.get("history_today_48half", []),
+            "history_tomorrow_48half": data.get("history_tomorrow_48half", []),
+            "updated": data.get("updated"),
+        }
+
+    @property
     def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {(DOMAIN, f"{self._region}_{self._queue}")},
-            "manufacturer": "svitlo.live",
+            "manufacturer": "Serhii Chaichuk",
             "model": f"Queue {self._queue}",
             "name": f"Svitlo • {self._region} / {self._queue}",
+            "configuration_url": "https://github.com/chaichuk",
         }

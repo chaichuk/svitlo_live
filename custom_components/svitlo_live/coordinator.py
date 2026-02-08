@@ -43,6 +43,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # For legacy entries, we'll try to find it in the current catalog.
         self.is_new_api = False
         self.api_region_key = self.region
+        self._history_today: list[list[str]] = []
+        self._history_tomorrow: list[list[str]] = []
 
         scan_seconds = int(config.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL))
 
@@ -110,6 +112,20 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValueError(f"Region '{self.api_region_key}' not found in API response")
 
         # --- Стандартна логіка парсингу (без змін) ---
+        
+        # Check for Day Rollover (Midnight)
+        # If API date_today is different from the date in our last successful data,
+        # it means the day has switched.
+        if self.data and self.data.get("date") and date_today:
+            previous_date = self.data["date"]
+            if previous_date != date_today:
+                _LOGGER.debug("Day rollover detected: %s -> %s. Shifting history.", previous_date, date_today)
+                # User Request:
+                # 1. Clear today's history (by overwriting it)
+                # 2. Move tomorrow's history to today
+                self._history_today = self._history_tomorrow
+                self._history_tomorrow = []
+
         is_emergency = region_obj.get("emergency", False)
         schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
         slots_today_map = schedule.get(date_today) or {}
@@ -130,6 +146,13 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_on_at": None,
                 "next_off_at": None,
                 "is_emergency": is_emergency,
+                "today_outage_hours": None,
+                "tomorrow_outage_hours": None,
+                "longest_outage_hours": None,
+                "history_today_48half": [],
+                "history_tomorrow_48half": [],
+                "tomorrow_date": None,
+                "tomorrow_48half": [],
              }
 
         def build_half_list(slots_map: dict[str, int]) -> list[str]:
@@ -146,6 +169,26 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today_half = build_half_list(slots_today_map)
         tomorrow_half = build_half_list(slots_tomorrow_map) if slots_tomorrow_map else []
 
+        # --- Statistics calculation ---
+        today_outage_hours = today_half.count("off") * 0.5
+        tomorrow_outage_hours = tomorrow_half.count("off") * 0.5 if tomorrow_half else None
+
+        def get_longest_consecutive_off(series: list[str]) -> float:
+            max_count = 0
+            current_count = 0
+            for state in series:
+                if state == "off":
+                    current_count += 1
+                else:
+                    max_count = max(max_count, current_count)
+                    current_count = 0
+            max_count = max(max_count, current_count)
+            return max_count * 0.5
+
+        # Longest outage can span across today and tomorrow if available
+        combined_half = today_half + (tomorrow_half or [])
+        longest_outage = get_longest_consecutive_off(combined_half)
+
         now_local = dt_util.now(TZ_KYIV)
         base_day = datetime.fromisoformat(date_today).date() if date_today else now_local.date()
         
@@ -155,16 +198,31 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             idx = now_local.hour * 2 + (1 if now_local.minute >= 30 else 0)
 
         cur = today_half[idx] if today_half else "unknown"
-        
-        nci = self._next_change_idx(today_half, idx) if today_half else None
-        next_change_hhmm = None
-        if nci is not None:
-            h = nci // 2
-            m = 30 if (nci % 2) else 0
-            next_change_hhmm = f"{h:02d}:{m:02d}"
 
         next_on_at = self._find_next_at(["on"], base_day, today_half, idx, date_tomorrow, tomorrow_half)
         next_off_at = self._find_next_at(["off"], base_day, today_half, idx, date_tomorrow, tomorrow_half)
+
+        # Determine next change time based on current status and calculated timestamps
+        if cur == "off":
+            next_change_iso = next_on_at
+        elif cur == "on":
+            next_change_iso = next_off_at
+        else:
+            # For "unknown" status, pick the earliest transition (either on or off)
+            if next_on_at and next_off_at:
+                next_change_iso = min(next_on_at, next_off_at)
+            else:
+                next_change_iso = next_on_at or next_off_at
+        next_change_hhmm = None
+        if next_change_iso:
+            try:
+                dt_change = dt_util.parse_datetime(next_change_iso)
+                if dt_change:
+                    # Localize to Kyiv to get the correct HH:MM
+                    dt_local = self._localize_kyiv(dt_change)
+                    next_change_hhmm = dt_local.strftime("%H:%M")
+            except Exception as e:
+                _LOGGER.debug("Error formatting next_change_at: %s", e)
 
         data = {
             "queue": self.queue,
@@ -177,8 +235,29 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
+            "today_outage_hours": today_outage_hours,
+            "tomorrow_outage_hours": tomorrow_outage_hours,
+            "longest_outage_hours": longest_outage,
+            "history_today_48half": self._history_today,
+            "history_tomorrow_48half": self._history_tomorrow,
             "is_emergency": is_emergency,
         }
+
+        # Update "history" (store up to 3 previous versions)
+        if self.data:
+            old_today = self.data.get("today_48half", [])
+            if today_half and old_today and today_half != old_today:
+                if not self._history_today or old_today != self._history_today[0]:
+                    self._history_today.insert(0, old_today)
+                    self._history_today = self._history_today[:3]
+                data["history_today_48half"] = self._history_today
+            
+            old_tomorrow = self.data.get("tomorrow_48half", [])
+            if tomorrow_half and old_tomorrow and tomorrow_half != old_tomorrow:
+                if not self._history_tomorrow or old_tomorrow != self._history_tomorrow[0]:
+                    self._history_tomorrow.insert(0, old_tomorrow)
+                    self._history_tomorrow = self._history_tomorrow[:3]
+                data["history_tomorrow_48half"] = self._history_tomorrow
 
         if date_tomorrow and tomorrow_half:
             data["tomorrow_date"] = date_tomorrow
@@ -228,16 +307,6 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._unsub_precise = async_track_point_in_utc_time(self.hass, _tick, candidate_utc)
         except Exception as e:
             _LOGGER.debug("Failed to schedule precise refresh: %s", e)
-
-    @staticmethod
-    def _next_change_idx(series: list[str], idx: int) -> Optional[int]:
-        if not series: return None
-        cur = series[idx]
-        n = len(series)
-        for step in range(1, n + 1):
-            j = (idx + step) % n
-            if series[j] != cur: return j
-        return None
 
     @staticmethod
     def _find_next_at(target_states: list[str], base_date: date, today_half: list[str], idx: int, tomorrow_date_iso: Optional[str], tomorrow_half: Optional[list[str]]) -> Optional[str]:

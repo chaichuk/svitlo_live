@@ -8,7 +8,7 @@ PLATFORMS: list[Platform] = [
     Platform.CALENDAR,
 ]
 
-DEFAULT_SCAN_INTERVAL = 900
+DEFAULT_SCAN_INTERVAL = 600
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"

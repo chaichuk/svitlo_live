@@ -29,6 +29,10 @@ class SvitloApiHub:
         self._last_fetch_old: Optional[datetime] = None
         self._last_fetch_new: Optional[datetime] = None
         
+        # HTTP Caching tags
+        self._etags: dict[str, str] = {}
+        self._last_modified: dict[str, str] = {}
+        
         self._cache_ttl = timedelta(seconds=600)  # 10 minutes
 
     async def get_regions_catalog(self) -> List[Dict[str, Any]]:
@@ -90,34 +94,81 @@ class SvitloApiHub:
                 return cache_data
 
             url = DTEK_API_URL if is_new else OLD_API_URL
-            try:
-                _LOGGER.debug("Fetching API: %s", url)
-                async with self._session.get(url, timeout=30) as resp:
-                    if resp.status != 200:
-                        _LOGGER.warning("HTTP %s for %s", resp.status, url)
-                        return cache_data or {}
-                    
-                    raw = await resp.json(content_type=None)
-                    
-                    if is_new:
-                        # New API Worker format
-                        body_str = raw.get("body")
-                        if body_str:
-                            try:
-                                final_data = json.loads(body_str)
-                            except json.JSONDecodeError as err:
-                                _LOGGER.error("Failed to parse New API body: %s", err)
-                                return cache_data or {}
+            
+            max_retries = 3
+            retry_delay = 2  # початкова затримка в секундах
+
+            # Prepare headers for conditional request
+            headers = {}
+            if url in self._etags:
+                headers["If-None-Match"] = self._etags[url]
+            if url in self._last_modified:
+                headers["If-Modified-Since"] = self._last_modified[url]
+
+            for attempt in range(max_retries + 1):
+                try:
+                    _LOGGER.debug(
+                        "Fetching API (attempt %d/%d): %s", 
+                        attempt + 1, max_retries + 1, url
+                    )
+                    async with self._session.get(url, headers=headers, timeout=30) as resp:
+                        # Handle 304 Not Modified
+                        if resp.status == 304:
+                            _LOGGER.debug("HTTP 304 Not Modified for %s", url)
+                            if is_new:
+                                self._last_fetch_new = now
+                            else:
+                                self._last_fetch_old = now
+                            return cache_data or {}
+
+                        if resp.status != 200:
+                            _LOGGER.warning(
+                                "HTTP %s for %s (attempt %d/%d)", 
+                                resp.status, url, attempt + 1, max_retries + 1
+                            )
+                            if attempt < max_retries:
+                                await asyncio.sleep(retry_delay)
+                                retry_delay *= 2
+                                continue
+                            return cache_data or {}
+                        
+                        # Update tags on 200 OK
+                        if etag := resp.headers.get("ETag"):
+                            self._etags[url] = etag
+                        if last_mod := resp.headers.get("Last-Modified"):
+                            self._last_modified[url] = last_mod
+
+                        raw = await resp.json(content_type=None)
+                        
+                        if is_new:
+                            # New API Worker format
+                            body_str = raw.get("body")
+                            if body_str:
+                                try:
+                                    final_data = json.loads(body_str)
+                                except json.JSONDecodeError as err:
+                                    _LOGGER.error("Failed to parse New API body: %s", err)
+                                    return cache_data or {}
+                            else:
+                                final_data = raw
+                            
+                            self._data_new = final_data
+                            self._last_fetch_new = now
                         else:
-                            final_data = raw
-                        
-                        self._data_new = final_data
-                        self._last_fetch_new = now
-                    else:
-                        self._data_old = raw
-                        self._last_fetch_old = now
-                        
-                    return self._data_new if is_new else self._data_old
-            except Exception as e:
-                _LOGGER.error("Error fetching %s: %s", url, e)
-                return cache_data or {}
+                            self._data_old = raw
+                            self._last_fetch_old = now
+                            
+                        return self._data_new if is_new else self._data_old
+
+                except Exception as e:
+                    _LOGGER.error(
+                        "Error fetching %s (attempt %d/%d): %s", 
+                        url, attempt + 1, max_retries + 1, e
+                    )
+                    if attempt < max_retries:
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    return cache_data or {}
+            
+            return cache_data or {}

@@ -37,5 +37,55 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "svitlo_status": {
+        "name": "Electricity"
+      },
+      "svitlo_next_grid": {
+        "name": "Next grid connection"
+      },
+      "svitlo_next_outage": {
+        "name": "Next Outage"
+      },
+      "svitlo_min_to_on": {
+        "name": "Minutes to grid connection"
+      },
+      "svitlo_min_to_off": {
+        "name": "Minutes to outage"
+      },
+      "svitlo_next_power_on": {
+        "name": "Next Power On"
+      },
+      "svitlo_next_power_off": {
+        "name": "Next Power Off"
+      },
+      "svitlo_updated": {
+        "name": "Schedule Updated"
+      },
+      "svitlo_outage_today": {
+        "name": "Total outage today"
+      },
+      "svitlo_outage_tomorrow": {
+        "name": "Total outage tomorrow"
+      },
+      "svitlo_longest_outage": {
+        "name": "Longest continuous outage"
+      }
+    },
+    "binary_sensor": {
+      "svitlo_electricity_status": {
+        "name": "Electricity status"
+      },
+      "svitlo_emergency": {
+        "name": "Emergency outages"
+      }
+    },
+    "calendar": {
+      "svitlo_calendar": {
+        "name": "Outages Schedule"
+      }
+    }
   }
 }

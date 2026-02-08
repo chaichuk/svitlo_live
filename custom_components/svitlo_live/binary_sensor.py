@@ -1,4 +1,4 @@
-from __future__ import annotations
+
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -35,9 +35,10 @@ class SvitloBaseEntity(CoordinatorEntity):
         queue = getattr(self.coordinator, "queue", "queue")
         return {
             "identifiers": {(DOMAIN, f"{region}_{queue}")},
-            "manufacturer": "svitlo.live",
+            "manufacturer": "Serhii Chaichuk",
             "model": f"Queue {queue}",
             "name": f"Svitlo • {region} / {queue}",
+            "configuration_url": "https://github.com/chaichuk",
         }
 
     @property
@@ -47,7 +48,7 @@ class SvitloBaseEntity(CoordinatorEntity):
 
 class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
     """Бінарний сенсор: On = світло є; Off = відключення."""
-    _attr_name = "Electricity status"
+    _attr_translation_key = "svitlo_electricity_status"
     _attr_device_class = BinarySensorDeviceClass.POWER
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
@@ -63,23 +64,16 @@ class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
         val = data.get("now_status")
         if val == "off":
             return False
-        if val in ("on", "nosched"):
+        if val == "on":
             return True
         return None
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        d = getattr(self.coordinator, "data", {}) or {}
-        return {
-            "next_change_at": d.get("next_change_at"),
-            "queue": d.get("queue"),
-            "status_raw": d.get("now_status"),
-        }
+
 
 
 class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
     """Сенсор аварійних відключень."""
-    _attr_name = "Emergency outages"
+    _attr_translation_key = "svitlo_emergency"
     # Без device_class
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
@@ -93,6 +87,8 @@ class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
         if not data:
             return None
         return data.get("is_emergency", False)
+
+
 
     @property
     def icon(self):

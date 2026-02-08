@@ -37,5 +37,55 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "svitlo_status": {
+        "name": "Статус електроживлення"
+      },
+      "svitlo_next_grid": {
+        "name": "Наступне включення"
+      },
+      "svitlo_next_outage": {
+        "name": "Наступне відключення"
+      },
+      "svitlo_min_to_on": {
+        "name": "Хвилин до включення"
+      },
+      "svitlo_min_to_off": {
+        "name": "Хвилин до відключення"
+      },
+      "svitlo_next_power_on": {
+        "name": "Наступне включення через"
+      },
+      "svitlo_next_power_off": {
+        "name": "Наступне відключення через"
+      },
+      "svitlo_updated": {
+        "name": "Графік оновлено"
+      },
+      "svitlo_outage_today": {
+        "name": "Всього годин без світла сьогодні"
+      },
+      "svitlo_outage_tomorrow": {
+        "name": "Всього годин без світла завтра"
+      },
+      "svitlo_longest_outage": {
+        "name": "Найдовше відключення"
+      }
+    },
+    "binary_sensor": {
+      "svitlo_electricity_status": {
+        "name": "Наявність світла"
+      },
+      "svitlo_emergency": {
+        "name": "Аварійні відключення"
+      }
+    },
+    "calendar": {
+      "svitlo_calendar": {
+        "name": "Графік відключень"
+      }
+    }
   }
 }
