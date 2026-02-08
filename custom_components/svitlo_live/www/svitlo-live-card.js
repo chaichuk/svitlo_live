@@ -494,7 +494,12 @@ class SvitloLiveCard extends HTMLElement {
         'GET',
         `calendars/${entityId}?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`
       );
-      this._actualOutages = Array.isArray(response) ? response : [];
+      const rawEvents = Array.isArray(response) ? response : [];
+      this._actualOutages = rawEvents.filter(ev => {
+        const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+        const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+        return (e - s) >= 15 * 60000;
+      });
       this._renderWithCurrentDay(hass);
     } catch (e) {
       console.warn("SvitloLive: Error fetching calendar events", e);
@@ -874,8 +879,15 @@ class SvitloLiveCard extends HTMLElement {
       }
 
       if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity) {
-        const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
-        if (p >= 0 && p <= 100) addLabel(formatTime(rulerChangeTime), p, 'normal', true);
+        // User Request: If using Actual Calendar, do NOT show the label for "Power ON" on the timeline,
+        // because it's redundant (visible in header) and can be confusing if it was a short toggle.
+        // But DO show it if "Power OFF" (current outage start), as it's not in calendar yet.
+        const skipLabel = config.actual_outage_calendar_entity && !isOffCurrent;
+
+        if (!skipLabel) {
+          const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
+          if (p >= 0 && p <= 100) addLabel(formatTime(rulerChangeTime), p, 'normal', true);
+        }
       }
 
       let lastLabelIndex = -100;
