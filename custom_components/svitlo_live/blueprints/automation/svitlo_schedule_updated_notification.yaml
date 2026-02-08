@@ -260,13 +260,16 @@ action:
               {{ base_title }}
             {% endif %}
 
-          body: >-
+          body: |-
             {%- if show_location and location_name %}
             📍 {{ location_name }}
+
             {%- endif %}
             {%- if is_emergency and notify_emergency_changes %}
             ⛔️ УВАГА! Діють екстрені відключення.
+
             {%- endif %}
+
             {%- if events_today | length > 0 %}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }})
             {%- for e in events_today %}
@@ -289,11 +292,14 @@ action:
           body_text: |-
             {%- if show_location and location_name %}
             📍 {{ location_name }}
+
             {%- endif %}
             {%- if is_emergency and notify_emergency_changes %}
             🚨 <b>УВАГА! Введено екстрені відключення!</b>
             Графіки можуть не діяти.
+
             {%- endif %}
+
             {%- if events_today | length > 0 %}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
             {%- for e in events_today %}
@@ -304,6 +310,7 @@ action:
             {%- else %}
             📅 СЬОГОДНІ: ⚡ далі без відключень
             {%- endif %}
+
             {%- if events_tomorrow | length > 0 %}
             📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
             {%- for e in events_tomorrow %}
