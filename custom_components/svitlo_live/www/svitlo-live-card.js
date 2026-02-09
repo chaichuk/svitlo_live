@@ -899,7 +899,7 @@ class SvitloLiveCard extends HTMLElement {
       const addLabel = (text, pos, type = 'normal', priority = false, shift = null) => {
         const ZIGZAG_THRESHOLD = 8.3; // ~2 hours. Closer than this -> ZigZag (2nd row)
         const SPREAD_THRESHOLD = 16.7; // ~4 hours. Closer than this -> Spread (Nudge text)
-        const edgeThreshold = 12.0; // Distance to hide Start/End if conflict exists
+        const edgeThreshold = 17.0; // Distance to hide Start/End if conflict exists
 
         let conflictItem = null; let minDist = 999;
 
@@ -1111,19 +1111,35 @@ class SvitloLiveCard extends HTMLElement {
           m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:20;pointer-events:none;transform:translateX(-50%);`; timelineEl.appendChild(m);
         }
 
-        if (i > 0 && effectiveSchedule[i] !== effectiveSchedule[i - 1]) {
-          // Hide past planned labels if actual history is enabled.
-          if (config.show_actual_history && absIdx <= currentIdx) return;
+        if (i > 0) {
+          const isPlanChange = schedule[i] !== schedule[i - 1];
+          const isEffChange = effectiveSchedule[i] !== effectiveSchedule[i - 1];
+          const currPlan = schedule[i];
+          const currEff = effectiveSchedule[i];
 
-          // Fix Ghost Label: Suppress label at Current Time boundary if the PLAN didn't change.
-          // This prevents artifact labels (e.g. 18:00) when switching from History(Green) to Plan(Red)
-          // but the Plan itself is constant (Red->Red).
-          if (absIdx === currentIdx && schedule[i] === schedule[i - 1]) return;
+          // Is there an ACTUAL sensor change happening in this slot?
+          // If so, rulerChangeTime logic adds its OWN label separately.
+          const isActualChangeHere = (rulerChangeTime && changeSlotIdx === absIdx && config.use_status_entity);
 
-          const pos = (i / totalSlots) * 100;
-          let currentShift = null;
-          const newLabel = addLabel(slotInfo.time, pos, 'normal', false, currentShift);
-          if (newLabel) { lastLabelIndex = i; lastLabelElement = newLabel; }
+          // Logic: Show label if Plan Changed (unless overridden by Actual Change),
+          // OR if Visuals Changed (but filter out artificial boundaries where Plan didn't change).
+          // 1. isPlanChange: Fundamental requirement.
+          // 2. !isActualChangeHere: Don't double-label if actual change is right here.
+          // 3. (isEffChange || (currEff !== currPlan)):
+          //    - Normal case: Plan Changed and Eff Changed.
+          //    - Override case: Plan Changed but Eff didn't (e.g. 22:00 ON->ON). We WANT label here.
+          //    - Artificial case: Plan didn't Change (isPlanChange=false). We DON'T want label (e.g. 22:30).
+
+          const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
+
+          if (showPlanLabel) {
+            if (config.show_actual_history && absIdx <= currentIdx && currEff === currPlan) return;
+
+            const pos = (i / totalSlots) * 100;
+            let currentShift = null;
+            const newLabel = addLabel(slotInfo.time, pos, 'normal', false, currentShift);
+            if (newLabel) { lastLabelIndex = i; lastLabelElement = newLabel; }
+          }
         }
       });
 
