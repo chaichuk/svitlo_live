@@ -95,15 +95,23 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="priority-switch"></ha-switch>
           </ha-formfield>
 
-          <div id="actual-calendar-section">
-            <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Календар фактичних відключень (необов'язково):</label>
-            <div style="font-size: 11px; opacity: 0.6; margin: 2px 0 4px 0;">Якщо обрано — минулі слоти таймлайну показуватимуть фактичні відключення з календаря замість планових</div>
-            <div id="actual-calendar-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
-            
             <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
                <ha-switch id="actual-history-switch"></ha-switch>
             </ha-formfield>
           </div>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Налаштування кольорів:</label>
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 4px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <input type="color" id="color-on-picker" style="height: 42px; width: 42px; padding: 0; border: none; background: none; cursor: pointer;">
+              <ha-textfield id="color-on-input" label="Колір 'Є світло' (Hex/Name)" style="flex: 1;"></ha-textfield>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <input type="color" id="color-off-picker" style="height: 42px; width: 42px; padding: 0; border: none; background: none; cursor: pointer;">
+              <ha-textfield id="color-off-input" label="Колір 'Немає світла' (Hex/Name)" style="flex: 1;"></ha-textfield>
+            </div>
+          </div>
+
         </div>
       `;
 
@@ -118,13 +126,14 @@ class SvitloLiveCardEditor extends HTMLElement {
       if (currentCount !== entities.length || selector.options.length <= 1) {
         const currentVal = this._config.entity || "";
         const optionsHtml = `
-              <option value="" ${!currentVal ? "selected" : ""}>--- Оберіть зі списку (${entities.length} знайдено) ---</option>
-              ${entities.sort().map(eid => {
+        < option value = "" ${!currentVal ? "selected" : ""}> --- Оберіть зі списку(${entities.length} знайдено)-- -</option >
+          ${entities.sort().map(eid => {
           const state = this._hass.states[eid];
           const friendlyName = state?.attributes?.friendly_name || eid;
           return `<option value="${eid}">${friendlyName}</option>`;
-        }).join('')}
-            `;
+        }).join('')
+          }
+      `;
         selector.innerHTML = optionsHtml;
         selector.dataset.count = entities.length;
       }
@@ -192,6 +201,38 @@ class SvitloLiveCardEditor extends HTMLElement {
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'title', value: ev.target.value } }));
 
+    // Color ON
+    const colorOnInput = this.querySelector("#color-on-input");
+    const colorOnPicker = this.querySelector("#color-on-picker");
+    if (colorOnInput) {
+      colorOnInput.addEventListener("input", (ev) => {
+        if (colorOnPicker && /^#[0-9A-F]{6}$/i.test(ev.target.value)) colorOnPicker.value = ev.target.value;
+        this._valueChanged({ target: { configValue: 'color_on', value: ev.target.value } });
+      });
+    }
+    if (colorOnPicker) {
+      colorOnPicker.addEventListener("input", (ev) => {
+        if (colorOnInput) colorOnInput.value = ev.target.value;
+        this._valueChanged({ target: { configValue: 'color_on', value: ev.target.value } });
+      });
+    }
+
+    // Color OFF
+    const colorOffInput = this.querySelector("#color-off-input");
+    const colorOffPicker = this.querySelector("#color-off-picker");
+    if (colorOffInput) {
+      colorOffInput.addEventListener("input", (ev) => {
+        if (colorOffPicker && /^#[0-9A-F]{6}$/i.test(ev.target.value)) colorOffPicker.value = ev.target.value;
+        this._valueChanged({ target: { configValue: 'color_off', value: ev.target.value } });
+      });
+    }
+    if (colorOffPicker) {
+      colorOffPicker.addEventListener("input", (ev) => {
+        if (colorOffInput) colorOffInput.value = ev.target.value;
+        this._valueChanged({ target: { configValue: 'color_off', value: ev.target.value } });
+      });
+    }
+
     const selector = this.querySelector("#entity-selector");
     if (selector) selector.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'entity', value: ev.target.value } }));
 
@@ -241,6 +282,18 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (!this._hass || !this._config) return;
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.value = this._config.title || '';
+
+    const colorOnInput = this.querySelector("#color-on-input");
+    if (colorOnInput) colorOnInput.value = this._config.color_on || '';
+    const colorOnPicker = this.querySelector("#color-on-picker");
+    if (colorOnPicker && this._config.color_on && /^#[0-9A-F]{6}$/i.test(this._config.color_on)) colorOnPicker.value = this._config.color_on;
+    else if (colorOnPicker) colorOnPicker.value = '#1b5e20';
+
+    const colorOffInput = this.querySelector("#color-off-input");
+    if (colorOffInput) colorOffInput.value = this._config.color_off || '';
+    const colorOffPicker = this.querySelector("#color-off-picker");
+    if (colorOffPicker && this._config.color_off && /^#[0-9A-F]{6}$/i.test(this._config.color_off)) colorOffPicker.value = this._config.color_off;
+    else if (colorOffPicker) colorOffPicker.value = '#7f0000';
 
     if (this._statusSelector) {
       this._statusSelector.hass = this._hass;
@@ -299,6 +352,7 @@ class SvitloLiveCardEditor extends HTMLElement {
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
   }
+
 
   _valueChanged(ev) {
     if (!this._config || !this._hass) return;
@@ -456,8 +510,8 @@ class SvitloLiveCard extends HTMLElement {
                transform: scale(0.98);
             }
           </style>
-        </ha-card>
-      `;
+        </ha - card >
+        `;
       this.content = this.querySelector('#container');
 
       this.querySelectorAll('.day-tab').forEach(tab => {
@@ -647,8 +701,10 @@ class SvitloLiveCard extends HTMLElement {
       if (isUnknownCurrent) {
         statusEl.innerText = 'НЕВІДОМО'; statusEl.style.background = '#333'; statusEl.style.color = '#aaa';
       } else {
+        const COLOR_ON = config.color_on || '#1b5e20';
+        const COLOR_OFF = config.color_off || '#7f0000';
         statusEl.innerText = isToday || isDynamic ? (isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО') : 'ГРАФІК НА ЗАВТРА';
-        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? '#7f0000' : '#1b5e20') : '#333';
+        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? COLOR_OFF : COLOR_ON) : '#333';
         statusEl.style.color = '#fff';
       }
     }
@@ -916,12 +972,15 @@ class SvitloLiveCard extends HTMLElement {
       let lastLabelIndex = -100;
       let lastLabelElement = null;
 
+      const COLOR_ON = config.color_on || '#1b5e20';
+      const COLOR_OFF = config.color_off || '#7f0000';
+
       effectiveSchedule.forEach((state, i) => {
         const absIdx = startOffsetIdx + i;
         const b = document.createElement('div'); b.className = 'timeline-block'; b.style.flex = '1'; b.style.height = '100%'; b.style.position = 'relative';
 
-        let bg = '#1b5e20';
-        if (state === 'off') bg = '#7f0000';
+        let bg = COLOR_ON;
+        if (state === 'off') bg = COLOR_OFF;
         else if (state === 'unknown') bg = 'rgba(255, 255, 255, 0.05)';
         b.style.background = bg;
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
@@ -951,7 +1010,7 @@ class SvitloLiveCard extends HTMLElement {
 
               overlay.style.left = `${startPos}%`;
               overlay.style.width = `${100 - startPos}%`;
-              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // Current State
+              overlay.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON; // Current State
               overlay.style.zIndex = '2';
 
               // Overlay touches right edge, so take the border
@@ -973,7 +1032,7 @@ class SvitloLiveCard extends HTMLElement {
               overlay.style.top = '0'; overlay.style.bottom = '0';
               overlay.style.left = '0';
               overlay.style.width = `${changePercent}%`;
-              overlay.style.background = prevStateIsOff ? '#7f0000' : '#1b5e20';
+              overlay.style.background = prevStateIsOff ? COLOR_OFF : COLOR_ON;
               overlay.style.zIndex = '2';
 
               // Overlay does NOT touch right edge (ends at changePercent < 100), 
@@ -993,7 +1052,7 @@ class SvitloLiveCard extends HTMLElement {
             overlay.style.top = '0'; overlay.style.bottom = '0';
             overlay.style.right = '0';
             overlay.style.left = `${changePos}%`;
-            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
+            overlay.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
             overlay.style.zIndex = '2';
 
             if (b.style.borderRight && b.style.borderRight !== 'none') {
