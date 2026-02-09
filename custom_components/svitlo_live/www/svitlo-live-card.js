@@ -665,6 +665,30 @@ class SvitloLiveCard extends HTMLElement {
 
     let rulerChangeTime = (config.use_status_entity && customStatusEntity && !isUnknownCurrent) ? new Date(customStatusEntity.last_changed) : null;
 
+    // User Request: If Power is ON, try to use the End Time of the last actual outage from Calendar.
+    // This is more reliable across HA restarts than scanner.last_changed.
+    if (config.use_status_entity && !isOffCurrent && !isUnknownCurrent && this._actualOutages) {
+      const nowMs = new Date().getTime();
+      let lastOutageEnd = null;
+
+      this._actualOutages.forEach(ev => {
+        const e = new Date(ev.end.dateTime || ev.end.date);
+        const eMs = e.getTime();
+        // We ignore future events (shouldn't happen for past outages, but safety check)
+        if (eMs <= nowMs + 60000) {
+          if (!lastOutageEnd || eMs > lastOutageEnd.getTime()) {
+            lastOutageEnd = e;
+          }
+        }
+      });
+
+      // If we found a valid outage end time, use it.
+      // We do this blindly if found, assuming the calendar is the "Source of Truth" for history.
+      if (lastOutageEnd) {
+        rulerChangeTime = lastOutageEnd;
+      }
+    }
+
     // Fallback using Schedule if rulerChangeTime is not set (Status Entity missing or inactive)
     if (!rulerChangeTime) {
       // We use the Schedule (Plan) to determine "history"
@@ -818,7 +842,7 @@ class SvitloLiveCard extends HTMLElement {
 
       const addLabel = (text, pos, type = 'normal', priority = false, shift = null) => {
         const threshold = 8.5;
-        const edgeThreshold = 14.5;
+        const edgeThreshold = 17.0;
 
         let conflictItem = null; let minDist = 999;
 
@@ -879,10 +903,9 @@ class SvitloLiveCard extends HTMLElement {
       }
 
       if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity) {
-        // User Request: If using Actual Calendar, do NOT show the label for "Power ON" on the timeline,
-        // because it's redundant (visible in header) and can be confusing if it was a short toggle.
-        // But DO show it if "Power OFF" (current outage start), as it's not in calendar yet.
-        const skipLabel = config.actual_outage_calendar_entity && !isOffCurrent;
+        // User Request: Always show label for change time, even if using Actual Calendar.
+        // Previously we skipped 'Power ON' if calendar was present, but user wants to see the specific time (e.g. 08:34).
+        const skipLabel = false;
 
         if (!skipLabel) {
           const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
@@ -904,54 +927,63 @@ class SvitloLiveCard extends HTMLElement {
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
 
         if (config.use_status_entity && !isUnknownCurrent) {
-          // Special handling for Current Slot to support "Split" visualization
-          // Left of Now = Actual, Right of Now = Plan
           if (absIdx === currentIdx) {
-            const scheduleState = state; // Plan
+            const scheduleState = state; // Plan (block background)
 
-            // Check if Deviation exists (Actual != Plan)
-            // But beware: Pre-change might have matched Plan, Post-change mismatch.
-            // Or Pre-change mismatch, Post-change match?
-            // "Last event 00:38 ON" (Green). Plan likely Red.
-            // So Post-Change (Green) != Plan (Red).
+            // Calculate changePercent if change is in this slot
+            let changePercent = 0;
+            let hasChangeInSlot = false;
+            if (absIdx === changeSlotIdx && rulerChangeTime) {
+              const sTime = toLocalDisplay(absIdx).date.getTime();
+              changePercent = Math.min(100, Math.max(0, ((rulerChangeTime.getTime() - sTime) / 1800000) * 100));
+              hasChangeInSlot = true;
+            }
 
+            // Case A: Current State is DIFFERENT from Plan (e.g. Plan=ON, Current=OFF)
+            // This means from Change -> End is Deviation (Current State)
             if (currentSlotState !== scheduleState) {
-              const now = new Date();
-              const nowPercent = Math.min(100, Math.max(0, ((now.getMinutes() % 30) / 30) * 100 + ((now.getSeconds() / 60) / 30) * 100));
+              const overlay = document.createElement('div');
+              overlay.style.position = 'absolute';
+              overlay.style.top = '0'; overlay.style.bottom = '0';
 
-              let changePercent = 0;
-              // Only respect changeTime if it is in THIS slot.
-              if (absIdx === changeSlotIdx && rulerChangeTime) {
-                const slotStartMs = toLocalDisplay(absIdx).date.getTime(); // Re-calculate or reuse? toLocalDisplay creates new Date.
-                // We can infer slot start from index logic if reliable, but toLocalDisplay is consistent.
-                // Wait, toLocalDisplay(absIdx) helper is available in scope? Yes.
-                const sTime = toLocalDisplay(absIdx).date.getTime();
-                changePercent = Math.min(100, Math.max(0, ((rulerChangeTime.getTime() - sTime) / 1800000) * 100));
+              // If change happened in this slot, start overlay there. Otherwise full slot (0%).
+              const startPos = hasChangeInSlot ? changePercent : 0;
+
+              overlay.style.left = `${startPos}%`;
+              overlay.style.width = `${100 - startPos}%`;
+              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // Current State
+              overlay.style.zIndex = '2';
+
+              // Overlay touches right edge, so take the border
+              if (b.style.borderRight && b.style.borderRight !== 'none') {
+                overlay.style.borderRight = b.style.borderRight;
+                b.style.borderRight = 'none';
               }
-
-              // Draw Overlay from Change -> End of Slot (Status Projection)
-              // User wants "Ahead is also Green" if currently Green.
-              // So we extend the Current Status to the end of the slot (100%), overriding the Plan.
+              b.appendChild(overlay);
+            }
+            // Case B: Current State MATCHES Plan (e.g. Plan=ON, Current=ON)
+            // BUT there was a change in this slot (e.g. Turned ON late at 08:34)
+            // This means from 0 -> Change was Deviation (Previous State = OFF)
+            else if (currentSlotState === scheduleState && hasChangeInSlot) {
+              // Previous state is inverse of Current
+              const prevStateIsOff = !isOffCurrent;
 
               const overlay = document.createElement('div');
               overlay.style.position = 'absolute';
               overlay.style.top = '0'; overlay.style.bottom = '0';
-              overlay.style.left = `${changePercent}%`;
-              overlay.style.width = `${100 - changePercent}%`; // Extend to End
-              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // Actual color
+              overlay.style.left = '0';
+              overlay.style.width = `${changePercent}%`;
+              overlay.style.background = prevStateIsOff ? '#7f0000' : '#1b5e20';
               overlay.style.zIndex = '2';
+
+              // Overlay does NOT touch right edge (ends at changePercent < 100), 
+              // so DO NOT take the border. The block background (Current/Plan) handles the right edge.
               b.appendChild(overlay);
             }
           }
           else if (config.use_status_entity && !isUnknownCurrent && absIdx === changeSlotIdx && rulerChangeTime && absIdx !== currentIdx) {
-            // Here we might have partial overlay too, but from ChangeTime to Right.
-            // Re-implement basic overlay logic for the "Start of Deviation" slot if strictly needed.
-            // existing logic handles this via 'effectiveSchedule' returning specific state?
-            // The 'effectiveSchedule' map says: if absIdx === changeSlotIdx return isOffCurrent ? 'on' : 'off'.
-            // This means the BASE BACKGROUND is the OLD state (before change).
-            // So we need to overlay the NEW state from ChangeTime -> Right.
-
-            // Calculate position inside this slot
+            // ... (Logic for past slots overlapping change time - kept for robustness) ...
+            // This handles if change happened in a PAST slot relative to Now (rare if startOffset logic is good)
             const slotStartMs = toLocalDisplay(changeSlotIdx).date.getTime();
             const msInside = rulerChangeTime.getTime() - slotStartMs;
             const changePos = Math.max(0, Math.min(100, (msInside / 1800000) * 100));
@@ -959,21 +991,15 @@ class SvitloLiveCard extends HTMLElement {
             const overlay = document.createElement('div');
             overlay.style.position = 'absolute';
             overlay.style.top = '0'; overlay.style.bottom = '0';
-            overlay.style.right = '0'; // Ensure it snaps to the end
+            overlay.style.right = '0';
             overlay.style.left = `${changePos}%`;
-            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // New State
-            // overlay.style.width = `${100 - changePos}%`; // Removed to prevent sub-pixel gaps
+            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
             overlay.style.zIndex = '2';
 
-            // FIX: Move border from block to overlay to prevent "Green Line" artifact
-            // The block background is Green. The overlay is Red.
-            // If border is on block, it composites over Green.
-            // We want it on the overlay (Red).
             if (b.style.borderRight && b.style.borderRight !== 'none') {
               overlay.style.borderRight = b.style.borderRight;
               b.style.borderRight = 'none';
             }
-
             b.appendChild(overlay);
           }
         }
