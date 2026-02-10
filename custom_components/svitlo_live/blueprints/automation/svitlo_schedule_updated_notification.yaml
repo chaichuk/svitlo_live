@@ -48,6 +48,13 @@ blueprint:
       selector:
         text:
 
+    telegram_message_thread_id:
+      name: Telegram Message Thread ID
+      description: "ID гілки (теми) в Telegram групі. Залиште порожнім для надсилання в General."
+      default: ""
+      selector:
+        text:
+
     title_text:
       name: Заголовок (стандартний)
       default: "⚠️ Оновлено графіки відключень!"
@@ -112,6 +119,7 @@ variables:
   mobile_targets: !input mobile_targets
   telegram_chat_id: !input telegram_chat_id
   telegram_config_entry_id: !input telegram_config_entry_id
+  telegram_message_thread_id: !input telegram_message_thread_id
   base_title: !input title_text
   location_name: !input location_name
   storage_helper: !input storage_helper
@@ -360,6 +368,7 @@ action:
                       title: "{{ final_title }}"
                       message: "{{ body_text }}"
                       parse_mode: html
+                      message_thread_id: "{{ telegram_message_thread_id | int(0) if telegram_message_thread_id != '' else omit }}"
             # Старий bot (без config_entry_id)
             default:
               - service: telegram_bot.send_message
@@ -373,6 +382,7 @@ action:
                   title: "{{ final_title }}"
                   message: "{{ body_text }}"
                   parse_mode: html
+                  message_thread_id: "{{ telegram_message_thread_id | int(0) if telegram_message_thread_id != '' else omit }}"
 
       # 2.3) Persistent Notification
       - if:
