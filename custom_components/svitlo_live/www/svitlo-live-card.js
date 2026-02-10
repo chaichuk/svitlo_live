@@ -98,6 +98,10 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
                <ha-switch id="actual-history-switch"></ha-switch>
             </ha-formfield>
+
+             <ha-formfield label="Брати історію з сенсора ( замість календаря )" style="display: flex; align-items: center; margin-top: 8px;" id="use-history-api-field">
+                <ha-switch id="use-history-api-switch"></ha-switch>
+             </ha-formfield>
           </div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Налаштування кольорів:</label>
@@ -276,6 +280,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
+
+    const uhaSwitch = this.querySelector("#use-history-api-switch");
+    if (uhaSwitch) uhaSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'use_history_api', value: ev.target.checked } }));
   }
 
   _updateProperties() {
@@ -309,10 +316,22 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (ps) {
       ps.checked = this._config.use_status_entity || false;
 
-      // Update Actual Calendar Visibility on Init
+      // Toggle Actual Calendar Visibility
       const acSection = this.querySelector("#actual-calendar-section");
       if (acSection) acSection.style.display = ps.checked ? 'block' : 'none';
+
+      // Toggle History API Switch Visibility
+      // Toggle History API Switch Visibility - decouple from priority switch?
+      // No, user request implies we want to use History from THE SENSOR we are looking at.
+      // If priority switch is OFF, we look at Main Entity.
+      // So let's always show 'Use History API' but maybe rephrase it.
+      // Actually, let's keep it generally available.
+      const uhaField = this.querySelector("#use-history-api-field");
+      if (uhaField) uhaField.style.display = 'flex';
     }
+
+    const uhaSwitch = this.querySelector("#use-history-api-switch");
+    if (uhaSwitch) uhaSwitch.checked = this._config.use_history_api === true;
 
     const ds = this.querySelector("#dynamic-switch");
     if (ds) ds.checked = this._config.dynamic_timeline || false;
@@ -525,8 +544,120 @@ class SvitloLiveCard extends HTMLElement {
     this._hass = hass;
     if (this.config && this.config.actual_outage_calendar_entity) {
       this._fetchActualOutages(hass);
+    } else if (this.config && this.config.use_history_api) {
+      // Fetch history if enabled, regardless of status_entity presence
+      this._fetchHistoryFromEntity(hass);
     }
     this._renderWithCurrentDay(hass);
+  }
+
+  async _fetchHistoryFromEntity(hass) {
+    if (!this.config || !this.config.use_history_api) return;
+
+    // Determine which entity to fetch history for.
+    // "From THIS sensor" implies status_entity if configured, even if not used as priority.
+    let entityId = this.config.status_entity || this.config.entity;
+
+    if (!entityId) return;
+
+    const now = Date.now();
+    if (this._lastHistoryFetch && (now - this._lastHistoryFetch < 60000)) return; // 1 min debounce
+    this._lastHistoryFetch = now;
+
+    const startRange = new Date(now - 24 * 60 * 60 * 1000);
+    const endRange = new Date(now);
+
+    try {
+      // const entityId = this.config.status_entity; // Already determined above
+      const startISO = startRange.toISOString();
+      const endISO = endRange.toISOString();
+
+      // Using history/period API
+      const response = await hass.callApi(
+        'GET',
+        `history/period/${startISO}?filter_entity_id=${entityId}&end_time=${endISO}&minimal_response`
+      );
+
+      const rawHistory = (response && response[0]) ? response[0] : [];
+      const outageEvents = [];
+      let currentOutageStart = null;
+
+      // Process history with smoothing (merge short intervals < 15 mins)
+      // OFF states: 'off', 'unavailable', '0', 'false'
+      const isOff = (s) => ['off', 'unavailable', '0', 'false'].includes(String(s).toLowerCase());
+      const isUnknown = (s) => ['unknown', 'none', 'null', 'undefined'].includes(String(s).toLowerCase());
+
+      const intervals = [];
+      let currentStart = null;
+      let currentState = null;
+
+      // 1. Convert raw history into intervals
+      rawHistory.forEach((hItem, index) => {
+        let itemState = 'on';
+        if (isOff(hItem.state)) itemState = 'off';
+        else if (isUnknown(hItem.state)) itemState = 'unknown';
+
+        const itemTime = new Date(hItem.last_changed).getTime();
+
+        if (currentStart === null) {
+          currentStart = itemTime;
+          currentState = itemState;
+        } else {
+          if (itemState !== currentState) {
+            intervals.push({ state: currentState, start: currentStart, end: itemTime });
+            currentStart = itemTime;
+            currentState = itemState;
+          }
+        }
+      });
+      // Close last interval
+      if (currentStart !== null) {
+        intervals.push({ state: currentState, start: currentStart, end: Date.now() });
+      }
+
+      // 2. Smooth intervals
+      const smoothed = [];
+      intervals.forEach(int => {
+        if (smoothed.length === 0) {
+          smoothed.push(int);
+        } else {
+          const last = smoothed[smoothed.length - 1];
+          const duration = int.end - int.start;
+
+          // If short duration (< 15 mins), ignore this state change (treat as continuation of previous)
+          if (duration < 15 * 60000) {
+            last.end = int.end; // Extend previous to cover this blip
+          } else {
+            // If valid duration, but same state as last (due to previous merge), just extend
+            if (int.state === last.state) {
+              last.end = int.end;
+            } else {
+              smoothed.push(int);
+            }
+          }
+        }
+      });
+
+      // 3. Convert intervals to Outages and Unknowns
+      this._actualOutages = smoothed
+        .filter(i => i.state === 'off')
+        .map(i => ({
+          start: { dateTime: new Date(i.start).toISOString() },
+          end: { dateTime: new Date(i.end).toISOString() }
+        }));
+
+      this._unknownIntervals = smoothed
+        .filter(i => i.state === 'unknown')
+        .map(i => ({
+          start: { dateTime: new Date(i.start).toISOString() },
+          end: { dateTime: new Date(i.end).toISOString() }
+        }));
+
+      this._renderWithCurrentDay(hass);
+
+    } catch (e) {
+      console.warn("SvitloLive: Error fetching entity history", e);
+    }
   }
 
   async _fetchActualOutages(hass) {
@@ -810,9 +941,24 @@ class SvitloLiveCard extends HTMLElement {
       if (isPast && isToday && config.actual_outage_calendar_entity && showActualHistory) {
         if (config.use_status_entity && rulerChangeTime && absIdx >= changeSlotIdx) { /* skip */ }
         else {
-          if (!this._actualOutages) return 'on';
           const slotStartMs = toLocalDisplay(absIdx).date.getTime();
           const slotEndMs = slotStartMs + 1800000;
+
+          // Check for Unknown first (priority?) or Outage first?
+          // If unknown, we paint black. If off, red.
+          // Let's check Unknown first.
+          if (this._unknownIntervals) {
+            let uOverlap = 0;
+            for (const ev of this._unknownIntervals) {
+              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+              const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
+              if (oE > oS) uOverlap += (oE - oS);
+            }
+            if (uOverlap > 15 * 60000) return 'unknown';
+          }
+
+          if (!this._actualOutages) return 'on';
           let overlap = 0;
           for (const ev of this._actualOutages) {
             const s = new Date(ev.start.dateTime || ev.start.date).getTime();
@@ -880,7 +1026,7 @@ class SvitloLiveCard extends HTMLElement {
             hist.slice(startOffsetIdx).forEach(s => {
               const b = document.createElement('div'); b.style.flex = '1';
               if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
-              else if (s === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.05)';
+              else if (s === 'unknown') b.style.background = '#000000';
               else b.style.background = 'rgba(27, 94, 32, 0.6)';
               b.style.borderRight = '1px solid rgba(0,0,0,0.1)'; row.appendChild(b);
             });
@@ -1018,54 +1164,123 @@ class SvitloLiveCard extends HTMLElement {
 
       effectiveSchedule.forEach((state, i) => {
         const absIdx = startOffsetIdx + i;
-        const b = document.createElement('div'); b.className = 'timeline-block'; b.style.flex = '1'; b.style.height = '100%'; b.style.position = 'relative';
+        const isPast = absIdx < currentIdx;
+        const b = document.createElement('div'); b.className = 'timeline-block'; b.style.flex = '1'; b.style.height = '100%'; b.style.position = 'relative'; b.style.overflow = 'hidden';
 
         let bg = COLOR_ON;
         if (state === 'off') bg = COLOR_OFF;
-        else if (state === 'unknown') bg = 'rgba(255, 255, 255, 0.05)';
-        b.style.background = bg;
-        b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+        else if (state === 'unknown') bg = '#000000';
+
+        // Pixel-perfect history rendering:
+        // If we are in history mode (past), let's override the base block color with precise overlays.
+        const isHistoryMode = (config.use_history_api || config.use_status_entity || (config.actual_outage_calendar_entity && showActualHistory))
+          && isPast && isToday && (!rulerChangeTime || absIdx < changeSlotIdx);
+
+        if (isHistoryMode) {
+          // Base is Green (On)
+          bg = COLOR_ON;
+          b.style.background = bg;
+          b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+
+          const slotStartMs = toLocalDisplay(absIdx).date.getTime();
+          const slotEndMs = slotStartMs + 1800000;
+
+          // Draw Unknown Overlays first (Black)
+          if (this._unknownIntervals) {
+            this._unknownIntervals.forEach(ev => {
+              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+              const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
+              if (oE > oS) {
+                const startP = ((oS - slotStartMs) / 1800000) * 100;
+                const widthP = ((oE - oS) / 1800000) * 100;
+                const ov = document.createElement('div');
+                ov.style.cssText = `position:absolute;top:0;bottom:0;left:${startP}%;width:${widthP}%;background:#000000;z-index:1;`;
+                b.appendChild(ov);
+              }
+            });
+          }
+
+          // Draw Outage Overlays (Red) - on top of Unknown? or intertwined? 
+          // Assuming strict separation by smoothing, but Outage usually overrides Unknown visually if overlap.
+          if (this._actualOutages) {
+            this._actualOutages.forEach(ev => {
+              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+              const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
+              if (oE > oS) {
+                const startP = ((oS - slotStartMs) / 1800000) * 100;
+                const widthP = ((oE - oS) / 1800000) * 100;
+                const ov = document.createElement('div');
+                ov.style.cssText = `position:absolute;top:0;bottom:0;left:${startP}%;width:${widthP}%;background:${COLOR_OFF};z-index:2;`;
+                b.appendChild(ov);
+              }
+            });
+          }
+        } else {
+          b.style.background = bg;
+          b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+        }
 
         if (config.use_status_entity && !isUnknownCurrent) {
-          if (absIdx === currentIdx) {
+          // Check if this slot needs a split overlay (change happened here OR current slot deviation)
+          const isChangeSlot = (absIdx === changeSlotIdx && rulerChangeTime);
+          const isCurrentSlot = (absIdx === currentIdx);
+
+          if (isChangeSlot || isCurrentSlot) {
             const scheduleState = state; // Plan (block background)
 
             // Calculate changePercent if change is in this slot
             let changePercent = 0;
             let hasChangeInSlot = false;
-            if (absIdx === changeSlotIdx && rulerChangeTime) {
+
+            if (isChangeSlot) {
               const sTime = toLocalDisplay(absIdx).date.getTime();
               changePercent = Math.min(100, Math.max(0, ((rulerChangeTime.getTime() - sTime) / 1800000) * 100));
               hasChangeInSlot = true;
             }
 
-            // Case A: Current State is DIFFERENT from Plan (e.g. Plan=ON, Current=OFF)
-            // This means from Change -> End is Deviation (Current State)
+            // Determine if we need an overlay
+            // Ideally:
+            // 1. If hasChangeInSlot: 
+            //    - From 0 to changePercent: Previous State (inverse of isOffCurrent)
+            //    - From changePercent to 100: Current State (isOffCurrent)
+            //    BUT we only care about DEVIATION from Plan (scheduleState).
+            //    However, for the Change Slot, we usually want to show the Transition explicitly, 
+            //    regardless of plan, because it's "Live History".
+
+            // Refined Logic for Change Slot (Live):
+            // The BASE background is 'state' (Plan).
+            // We want to visually represent the Transition.
+
+            // If we are in the Current Slot, we also potentially have a "Future" part which is Plan.
+            // But if Current Slot == Change Slot, "Future" part is effectively "Now -> End of Slot".
+            // Since we know the state "Now", we assume it stays that way until further notice (or next plan change).
+
+            // Let's stick to the previous logic but apply it to isChangeSlot too.
+
+            // Case A: Current State is DIFFERENT from Plan
             if (currentSlotState !== scheduleState) {
               const overlay = document.createElement('div');
               overlay.style.position = 'absolute';
               overlay.style.top = '0'; overlay.style.bottom = '0';
 
-              // If change happened in this slot, start overlay there. Otherwise full slot (0%).
               const startPos = hasChangeInSlot ? changePercent : 0;
 
               overlay.style.left = `${startPos}%`;
               overlay.style.width = `${100 - startPos}%`;
-              overlay.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON; // Current State
+              overlay.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
               overlay.style.zIndex = '2';
 
-              // Overlay touches right edge, so take the border
               if (b.style.borderRight && b.style.borderRight !== 'none') {
                 overlay.style.borderRight = b.style.borderRight;
                 b.style.borderRight = 'none';
               }
               b.appendChild(overlay);
             }
-            // Case B: Current State MATCHES Plan (e.g. Plan=ON, Current=ON)
-            // BUT there was a change in this slot (e.g. Turned ON late at 08:34)
-            // This means from 0 -> Change was Deviation (Previous State = OFF)
+            // Case B: Current State MATCHES Plan, but there WAS a change in this slot
+            // meaning the PREVIOUS part of the slot was deviation.
             else if (currentSlotState === scheduleState && hasChangeInSlot) {
-              // Previous state is inverse of Current
               const prevStateIsOff = !isOffCurrent;
 
               const overlay = document.createElement('div');
@@ -1076,8 +1291,6 @@ class SvitloLiveCard extends HTMLElement {
               overlay.style.background = prevStateIsOff ? COLOR_OFF : COLOR_ON;
               overlay.style.zIndex = '2';
 
-              // Overlay does NOT touch right edge (ends at changePercent < 100), 
-              // so DO NOT take the border. The block background (Current/Plan) handles the right edge.
               b.appendChild(overlay);
             }
           }
