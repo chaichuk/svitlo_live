@@ -95,10 +95,13 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="priority-switch"></ha-switch>
           </ha-formfield>
 
+          <ha-formfield label="Інвертувати сенсор (ON = немає світла)" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="invert-switch"></ha-switch>
+          </ha-formfield>
+
             <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
                <ha-switch id="actual-history-switch"></ha-switch>
             </ha-formfield>
-          </div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Налаштування кольорів:</label>
           <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 4px;">
@@ -183,7 +186,7 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector = selector;
     }
 
-    this._scheduleSelector = selector;
+
   }
 
   _setupEventListeners() {
@@ -235,6 +238,9 @@ class SvitloLiveCardEditor extends HTMLElement {
         if (acSection) acSection.style.display = ev.target.checked ? 'block' : 'none';
       });
     }
+
+    const invertSwitch = this.querySelector("#invert-switch");
+    if (invertSwitch) invertSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'invert_status_entity', value: ev.target.checked } }));
 
     const dynamicSwitch = this.querySelector("#dynamic-switch");
     if (dynamicSwitch) dynamicSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'dynamic_timeline', value: ev.target.checked } }));
@@ -301,11 +307,10 @@ class SvitloLiveCardEditor extends HTMLElement {
       // Toggle Actual Calendar Visibility
       const acSection = this.querySelector("#actual-calendar-section");
       if (acSection) acSection.style.display = ps.checked ? 'block' : 'none';
-
-      // Toggle Actual Calendar Visibility - REMOVED
-      // Toggle History API Switch Visibility - REMOVED
-      // All controlled by 'show_actual_history' now.
     }
+
+    const invs = this.querySelector("#invert-switch");
+    if (invs) invs.checked = this._config.invert_status_entity || false;
 
     const ds = this.querySelector("#dynamic-switch");
     if (ds) ds.checked = this._config.dynamic_timeline || false;
@@ -336,8 +341,6 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector.hass = this._hass;
       this._scheduleSelector.value = this._config.schedule_entity || '';
     }
-
-    this._scheduleSelector.value = this._config.schedule_entity || '';
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
@@ -766,6 +769,10 @@ class SvitloLiveCard extends HTMLElement {
         isOffCurrent = false; isUnknownCurrent = false;
       } else {
         isUnknownCurrent = true; isOffCurrent = false;
+      }
+      // Інверсія сенсора: якщо ввімкнено, міняємо ON<->OFF
+      if (config.invert_status_entity && !isUnknownCurrent) {
+        isOffCurrent = !isOffCurrent;
       }
     }
 
