@@ -648,19 +648,12 @@ class SvitloLiveCard extends HTMLElement {
 
     const formatTime = (d) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 
-    // FIX 1: Зберігаємо базову дату початку таймлайну для стабільних міток
     const getBaselineDate = () => {
       const now = new Date();
-      // Отримуємо поточний час у Києві
       const kyivTimeStr = now.toLocaleTimeString("en-US", { timeZone: "Europe/Kyiv", hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const [h, m, s] = kyivTimeStr.split(':').map(Number);
-
-      // Віднімаємо час, що пройшов від початку дня у Києві, від поточного timestamp
-      // Це дає нам timestamp півночі у Києві, незалежно від часового поясу браузера
       const msSinceMidnight = (h * 3600 + m * 60 + s) * 1000;
       const kyivMidnightMs = now.getTime() - msSinceMidnight;
-
-      // Повертаємо Date об'єкт, округлений до секунд (щоб прибрати мілісекунди)
       const date = new Date(kyivMidnightMs);
       date.setMilliseconds(0);
       return date;
@@ -669,7 +662,6 @@ class SvitloLiveCard extends HTMLElement {
     const baselineDate = getBaselineDate();
 
     const toLocalDisplay = (targetIdx) => {
-      // Використовуємо базову дату замість поточного часу
       const targetDate = new Date(baselineDate.getTime() + (targetIdx * 30 * 60 * 1000));
       return { time: formatTime(targetDate), date: targetDate };
     };
@@ -754,13 +746,11 @@ class SvitloLiveCard extends HTMLElement {
     }
     if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
-    // FIX 2: Визначаємо rulerChangeTime з пріоритетом до Calendar History
     let rulerChangeTime = null;
 
     if (config.use_status_entity && !isOffCurrent && !isUnknownCurrent && this._actualOutages) {
       const nowMs = new Date().getTime();
       let lastOutageEnd = null;
-
       this._actualOutages.forEach(ev => {
         const e = new Date(ev.end.dateTime || ev.end.date);
         const eMs = e.getTime();
@@ -770,20 +760,17 @@ class SvitloLiveCard extends HTMLElement {
           }
         }
       });
-
       if (lastOutageEnd) {
         rulerChangeTime = lastOutageEnd;
       }
     }
 
-    // Fallback: Якщо Calendar не має даних, використовуємо сенсор або графік
     if (!rulerChangeTime) {
       if (config.use_status_entity && customStatusEntity && !isUnknownCurrent) {
         rulerChangeTime = new Date(customStatusEntity.last_changed);
       } else {
         const relativeCurrentIdx = currentIdx - startOffsetIdx;
         const currentPlan = schedule[relativeCurrentIdx] || 'unknown';
-
         let foundIdx = -1;
         for (let i = relativeCurrentIdx - 1; i >= 0; i--) {
           if (schedule[i] !== currentPlan) {
@@ -791,7 +778,6 @@ class SvitloLiveCard extends HTMLElement {
             break;
           }
         }
-
         if (foundIdx !== -1) {
           const changeIdx = startOffsetIdx + foundIdx + 1;
           rulerChangeTime = toLocalDisplay(changeIdx).date;
@@ -817,19 +803,16 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     let changeSlotIdx = -1;
-
     if (rulerChangeTime) {
       const diffMs = rulerChangeTime.getTime() - toLocalDisplay(currentIdx).date.getTime();
       const diffSlots = Math.floor(diffMs / 1800000);
       changeSlotIdx = currentIdx + diffSlots;
     }
 
-    // FIX 3: Таймлайн малюємо СТРОГО за графіком (або History API для минулого)
     const effectiveSchedule = schedule.map((state, i) => {
       const absIdx = startOffsetIdx + i;
       const isPast = absIdx < currentIdx;
 
-      // Якщо використовуємо Actual History для минулих слотів
       if (isPast && isToday && config.show_actual_history && showActualHistory) {
         const slotStartMs = toLocalDisplay(absIdx).date.getTime();
         const slotEndMs = slotStartMs + 1800000;
@@ -857,7 +840,6 @@ class SvitloLiveCard extends HTMLElement {
         }
         return (overlap > 0) ? 'off' : 'on';
       }
-
       return state || 'unknown';
     });
 
@@ -885,8 +867,10 @@ class SvitloLiveCard extends HTMLElement {
       }
     }
 
-    // FIX 4: Додаємо currentSlotState до ключа кешування
-    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
+    let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
+
+    // FIX: Include history data in the cache key to force re-render when history updates
+    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
 
     if (timelineEl && this._lastRenderedKey !== scheduleKey) {
       this._lastRenderedKey = scheduleKey;
@@ -898,10 +882,13 @@ class SvitloLiveCard extends HTMLElement {
       if (historyTimelineEl) {
         historyTimelineEl.innerHTML = '';
         historyTimelineEl.style.display = 'none';
-        let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
+
         if (config.show_history && histories && Array.isArray(histories) && histories.length > 0) {
           historyTimelineEl.style.display = 'flex';
           histories.slice(0, 3).forEach(hist => {
+            // Check if hist is array (it should be according to YAML)
+            if (!Array.isArray(hist)) return;
+
             const row = document.createElement('div');
             row.style.display = 'flex';
             row.style.height = '6px';
@@ -1167,7 +1154,6 @@ class SvitloLiveCard extends HTMLElement {
           b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
         }
 
-        // FIX 6: "Малюємо за собою" для поточного слоту (якщо ввімкнена історія)
         if (absIdx === currentIdx && isToday && config.show_actual_history && showActualHistory && !isUnknownCurrent) {
           const now = new Date();
           const percentFromStart = ((now.getMinutes() % 30) / 30) * 100;
@@ -1181,7 +1167,6 @@ class SvitloLiveCard extends HTMLElement {
           overlay.style.zIndex = '2';
           b.appendChild(overlay);
         }
-
 
         timelineEl.appendChild(b);
 
@@ -1305,13 +1290,3 @@ class SvitloLiveCard extends HTMLElement {
 }
 
 customElements.define('svitlo-live-card', SvitloLiveCard);
-
-window.customCards = window.customCards || [];
-if (!window.customCards.some(c => c.type === "svitlo-live-card")) {
-  window.customCards.push({
-    type: "svitlo-live-card",
-    name: "Svitlo Live Card",
-    preview: true,
-    description: "Professional Svitlo.live dashboard"
-  });
-}
