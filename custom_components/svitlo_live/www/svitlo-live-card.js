@@ -99,10 +99,34 @@ class SvitloLiveCardEditor extends HTMLElement {
             <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Календар фактичних відключень (необов'язково):</label>
             <div style="font-size: 11px; opacity: 0.6; margin: 2px 0 4px 0;">Якщо обрано — минулі слоти таймлайну показуватимуть фактичні відключення з календаря замість планових</div>
             <div id="actual-calendar-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
-            
+
             <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
                <ha-switch id="actual-history-switch"></ha-switch>
             </ha-formfield>
+          </div>
+
+          <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.2));">
+            <label style="font-weight: bold; font-size: 14px;">Зовнішній вигляд:</label>
+
+            <ha-formfield label="Показувати тінь картки" style="display: flex; align-items: center; margin-top: 8px;">
+              <ha-switch id="shadow-switch"></ha-switch>
+            </ha-formfield>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px;">
+              <div>
+                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Колір "є світло"</label>
+                <input type="color" id="color-on-input" style="width: 100%; height: 36px; border: 1px solid var(--divider-color, #ccc); border-radius: 6px; cursor: pointer; background: none; padding: 2px;">
+              </div>
+              <div>
+                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Колір "немає світла"</label>
+                <input type="color" id="color-off-input" style="width: 100%; height: 36px; border: 1px solid var(--divider-color, #ccc); border-radius: 6px; cursor: pointer; background: none; padding: 2px;">
+              </div>
+              <div>
+                <label style="font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">Колір "невідомо"</label>
+                <input type="color" id="color-unknown-input" style="width: 100%; height: 36px; border: 1px solid var(--divider-color, #ccc); border-radius: 6px; cursor: pointer; background: none; padding: 2px;">
+              </div>
+            </div>
+            <button id="reset-colors-btn" style="margin-top: 10px; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--divider-color, #ccc); background: transparent; color: var(--primary-text-color); font-size: 12px; cursor: pointer; opacity: 0.7;">Скинути кольори</button>
           </div>
         </div>
       `;
@@ -235,6 +259,28 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
+
+    const shadowSwitch = this.querySelector("#shadow-switch");
+    if (shadowSwitch) shadowSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_shadow', value: ev.target.checked } }));
+
+    const colorOnInput = this.querySelector("#color-on-input");
+    if (colorOnInput) colorOnInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'color_on', value: ev.target.value } }));
+
+    const colorOffInput = this.querySelector("#color-off-input");
+    if (colorOffInput) colorOffInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'color_off', value: ev.target.value } }));
+
+    const colorUnknownInput = this.querySelector("#color-unknown-input");
+    if (colorUnknownInput) colorUnknownInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'color_unknown', value: ev.target.value } }));
+
+    const resetColorsBtn = this.querySelector("#reset-colors-btn");
+    if (resetColorsBtn) resetColorsBtn.addEventListener("click", () => {
+      const defaults = { color_on: '#1b5e20', color_off: '#7f0000', color_unknown: '#444444' };
+      const newConfig = { ...this._config, ...defaults };
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
+      const cOn = this.querySelector("#color-on-input"); if (cOn) cOn.value = defaults.color_on;
+      const cOff = this.querySelector("#color-off-input"); if (cOff) cOff.value = defaults.color_off;
+      const cUnk = this.querySelector("#color-unknown-input"); if (cUnk) cUnk.value = defaults.color_unknown;
+    });
   }
 
   _updateProperties() {
@@ -298,6 +344,18 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
+
+    const shSwitch = this.querySelector("#shadow-switch");
+    if (shSwitch) shSwitch.checked = this._config.show_shadow !== false;
+
+    const colorOn = this.querySelector("#color-on-input");
+    if (colorOn) colorOn.value = this._config.color_on || '#1b5e20';
+
+    const colorOff = this.querySelector("#color-off-input");
+    if (colorOff) colorOff.value = this._config.color_off || '#7f0000';
+
+    const colorUnknown = this.querySelector("#color-unknown-input");
+    if (colorUnknown) colorUnknown.value = this._config.color_unknown || '#444444';
   }
 
   _valueChanged(ev) {
@@ -320,7 +378,7 @@ class SvitloLiveCard extends HTMLElement {
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card style="overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
+        <ha-card id="svitlo-ha-card" style="overflow: hidden;">
           <div id="container" style="padding: 16px;">
             
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
@@ -425,10 +483,13 @@ class SvitloLiveCard extends HTMLElement {
 
           </div>
           <style>
-            .day-tab.active { 
-              background: var(--primary-color, #03a9f4); 
-              color: #fff; 
+            .day-tab.active {
+              background: var(--primary-color, #03a9f4);
+              color: #fff;
               box-shadow: 0 2px 8px rgba(3, 169, 244, 0.4);
+            }
+            .no-shadows .day-tab.active {
+              box-shadow: none;
             }
             .day-tab:not(.active):hover { 
               background: rgba(127,127,127,0.15); 
@@ -517,8 +578,39 @@ class SvitloLiveCard extends HTMLElement {
     const config = this.config;
     if (!config || !config.entity || !hass.states[config.entity]) return;
 
+    // Apply shadow setting to all elements
+    const showShadow = config.show_shadow !== false;
+    const haCard = this.querySelector('#svitlo-ha-card');
+    if (haCard) haCard.style.boxShadow = showShadow ? '0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1)' : 'none';
+
+    const statusEl_ = this.querySelector('#status');
+    if (statusEl_) statusEl_.style.boxShadow = showShadow ? '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)' : 'none';
+
+    const timelineEl_ = this.querySelector('#timeline');
+    if (timelineEl_) timelineEl_.style.boxShadow = showShadow ? '0 4px 15px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.4)' : 'none';
+
+    const daySwitcher_ = this.querySelector('#day-switcher');
+    if (daySwitcher_) daySwitcher_.style.boxShadow = showShadow ? 'inset 0 1px 3px rgba(0,0,0,0.1)' : 'none';
+
+    const leftStat_ = this.querySelector('#left-stat');
+    if (leftStat_) leftStat_.style.boxShadow = showShadow ? '0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none';
+
+    const rightStat_ = this.querySelector('#right-stat');
+    if (rightStat_) rightStat_.style.boxShadow = showShadow ? '0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none';
+
+    const emergencyBanner_ = this.querySelector('#emergency-banner');
+    if (emergencyBanner_) emergencyBanner_.style.boxShadow = showShadow ? '0 2px 8px rgba(183, 28, 28, 0.4), inset 0 1px 0 rgba(255,255,255,0.1)' : 'none';
+
+    // Apply shadow class for CSS-driven active tab shadow
+    if (haCard) haCard.classList.toggle('no-shadows', !showShadow);
+
     const stateObj = hass.states[config.entity];
     const attrs = stateObj.attributes;
+
+    // Configurable colors
+    const colorOn = config.color_on || '#1b5e20';
+    const colorOff = config.color_off || '#7f0000';
+    const colorUnknown = config.color_unknown || '#444444';
 
     const showStats = config.show_stats !== false;
     const showActualHistory = config.show_actual_history === true;
@@ -648,7 +740,7 @@ class SvitloLiveCard extends HTMLElement {
         statusEl.innerText = 'НЕВІДОМО'; statusEl.style.background = '#333'; statusEl.style.color = '#aaa';
       } else {
         statusEl.innerText = isToday || isDynamic ? (isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО') : 'ГРАФІК НА ЗАВТРА';
-        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? '#7f0000' : '#1b5e20') : '#333';
+        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? colorOff : colorOn) : '#333';
         statusEl.style.color = '#fff';
       }
     }
@@ -799,9 +891,9 @@ class SvitloLiveCard extends HTMLElement {
             // FIX: Просто обрізаємо історію без зшивання, щоб не було зсувів
             hist.slice(startOffsetIdx).forEach(s => {
               const b = document.createElement('div'); b.style.flex = '1';
-              if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
-              else if (s === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.05)';
-              else b.style.background = 'rgba(27, 94, 32, 0.6)';
+              if (s === 'off') b.style.background = colorOff + '99';
+              else if (s === 'unknown') b.style.background = colorUnknown + '99';
+              else b.style.background = colorOn + '99';
               b.style.borderRight = '1px solid rgba(0,0,0,0.1)'; row.appendChild(b);
             });
 
@@ -897,9 +989,9 @@ class SvitloLiveCard extends HTMLElement {
         const absIdx = startOffsetIdx + i;
         const b = document.createElement('div'); b.className = 'timeline-block'; b.style.flex = '1'; b.style.height = '100%'; b.style.position = 'relative';
 
-        let bg = '#1b5e20';
-        if (state === 'off') bg = '#7f0000';
-        else if (state === 'unknown') bg = 'rgba(255, 255, 255, 0.05)';
+        let bg = colorOn;
+        if (state === 'off') bg = colorOff;
+        else if (state === 'unknown') bg = colorUnknown;
         b.style.background = bg;
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
 
@@ -938,7 +1030,7 @@ class SvitloLiveCard extends HTMLElement {
               overlay.style.top = '0'; overlay.style.bottom = '0';
               overlay.style.left = `${changePercent}%`;
               overlay.style.width = `${100 - changePercent}%`; // Extend to End
-              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // Actual color
+              overlay.style.background = isOffCurrent ? colorOff : colorOn; // Actual color
               overlay.style.zIndex = '2';
               b.appendChild(overlay);
             }
@@ -961,7 +1053,7 @@ class SvitloLiveCard extends HTMLElement {
             overlay.style.top = '0'; overlay.style.bottom = '0';
             overlay.style.right = '0'; // Ensure it snaps to the end
             overlay.style.left = `${changePos}%`;
-            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // New State
+            overlay.style.background = isOffCurrent ? colorOff : colorOn; // New State
             // overlay.style.width = `${100 - changePos}%`; // Removed to prevent sub-pixel gaps
             overlay.style.zIndex = '2';
 
@@ -1001,11 +1093,13 @@ class SvitloLiveCard extends HTMLElement {
 
     if (nowMarker) {
       const now = new Date();
+      const markerGlow = showShadow ? 'box-shadow:0 0 12px #fff;' : '';
+      const markerGlow2 = showShadow ? 'box-shadow:0 0 8px #fff;' : '';
       if (isDynamic) {
         const pos = (((currentIdx - startOffsetIdx) + (now.getMinutes() % 30) / 30) / schedule.length) * 100;
-        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:10;box-shadow:0 0 12px #fff;`;
+        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:10;${markerGlow}`;
       } else if (isToday) {
-        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:10;box-shadow:0 0 8px #fff;`;
+        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:10;${markerGlow2}`;
       } else nowMarker.style.display = 'none';
     }
 
