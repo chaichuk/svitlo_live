@@ -563,14 +563,67 @@ class SvitloLiveCard extends HTMLElement {
         intervals.push({ state: currentState, start: currentStart, end: Date.now() });
       }
 
-      this._actualOutages = intervals
+      // НОВИЙ КОД: Фільтрація коротких переключень (<15 хв)
+      const MIN_DURATION_MS = 15 * 60 * 1000; // 15 хвилин
+      const filteredIntervals = [];
+
+      for (let i = 0; i < intervals.length; i++) {
+        const interval = intervals[i];
+        const duration = interval.end - interval.start;
+
+        // Якщо інтервал довгий (>= 15 хв) - завжди додаємо
+        if (duration >= MIN_DURATION_MS) {
+          filteredIntervals.push(interval);
+          continue;
+        }
+
+        // Якщо інтервал короткий (< 15 хв)
+        // Перевіряємо, чи він оточений інтервалами того самого стану
+        const prevInterval = intervals[i - 1];
+        const nextInterval = intervals[i + 1];
+
+        // Якщо попередній і наступний інтервали мають однаковий стан, 
+        // а поточний інтервал короткий - пропускаємо його (це "глич")
+        if (prevInterval && nextInterval &&
+          prevInterval.state === nextInterval.state &&
+          interval.state !== prevInterval.state) {
+          // Це короткий "глич" - пропускаємо
+          continue;
+        }
+
+        // Інакше додаємо інтервал
+        filteredIntervals.push(interval);
+      }
+
+      // Після фільтрації може статися, що сусідні інтервали мають той самий стан
+      // Об'єднуємо їх
+      const mergedIntervals = [];
+      for (let i = 0; i < filteredIntervals.length; i++) {
+        const current = filteredIntervals[i];
+
+        if (mergedIntervals.length === 0) {
+          mergedIntervals.push(current);
+          continue;
+        }
+
+        const last = mergedIntervals[mergedIntervals.length - 1];
+
+        if (last.state === current.state) {
+          // Об'єднуємо з попереднім інтервалом
+          last.end = current.end;
+        } else {
+          mergedIntervals.push(current);
+        }
+      }
+
+      this._actualOutages = mergedIntervals
         .filter(i => i.state === 'off')
         .map(i => ({
           start: { dateTime: new Date(i.start).toISOString() },
           end: { dateTime: new Date(i.end).toISOString() }
         }));
 
-      this._unknownIntervals = intervals
+      this._unknownIntervals = mergedIntervals
         .filter(i => i.state === 'unknown')
         .map(i => ({
           start: { dateTime: new Date(i.start).toISOString() },
@@ -869,7 +922,6 @@ class SvitloLiveCard extends HTMLElement {
 
     let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
 
-    // Using previous cache logic
     const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
 
     if (timelineEl && this._lastRenderedKey !== scheduleKey) {
@@ -923,19 +975,16 @@ class SvitloLiveCard extends HTMLElement {
         const SPREAD_THRESHOLD = 16.7;
         const edgeThreshold = 17.0;
 
-        // 1. Якщо ми додаємо ЗВИЧАЙНУ мітку (напр. 12:30), спочатку перевіряємо ВСІ пріоритетні мітки
         if (!priority) {
           for (const item of occupiedPositions) {
             if (item.priority) {
               const dist = Math.abs(item.pos - pos);
               const isPast = pos < item.pos;
-              // Агресивно чистимо минуле (25%), стандартно майбутнє (4%)
               if (dist < (isPast ? 25.0 : 4.0)) return null;
             }
           }
         }
 
-        // 2. Шукаємо найближчого сусіда для стандартної логіки zigzag/overlap
         let conflictItem = null;
         let minDist = 999;
 
@@ -955,15 +1004,13 @@ class SvitloLiveCard extends HTMLElement {
           if (edgeConflict) return null;
         }
 
-        // 3. Логіка для ПРІОРИТЕТНОЇ мітки (вона має видаляти сусідів)
         if (priority) {
-          // Видаляємо звичайні мітки в радіусі дії
           for (let i = occupiedPositions.length - 1; i >= 0; i--) {
             const item = occupiedPositions[i];
             if (!item.priority) {
               const dist = Math.abs(item.pos - pos);
               const isPastLabel = item.pos < pos;
-              const cleanThreshold = isPastLabel ? 18.0 : 5.0; // Радіус зачистки
+              const cleanThreshold = isPastLabel ? 18.0 : 5.0;
 
               if (dist < cleanThreshold) {
                 if (item.element) item.element.remove();
@@ -974,14 +1021,10 @@ class SvitloLiveCard extends HTMLElement {
           conflictItem = null;
         }
         else {
-          // Логіка для звичайних міток
-          // Пріоритетні ми вже перевірили в кроці 1. Тепер перевіряємо звичайні конфлікти.
           if (conflictItem) {
             if (conflictItem.priority) {
-              // Якщо найближчий - пріоритетний (але пройшов крок 1, тобто далеко), перевіряємо overlap
               if (minDist < 3.0) return null;
             } else {
-              // Звичайна vs Звичайна
               if (minDist < 3.0) return null;
             }
           }
