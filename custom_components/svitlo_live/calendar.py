@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Any, List, Optional
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
@@ -99,81 +99,105 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
     def _get_events_sync(self, start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
         """Внутрішня логіка парсингу подій (без async/await)."""
         d = getattr(self.coordinator, "data", {}) or {}
+        
         today_half = d.get("today_48half") or []
         tomorrow_half = d.get("tomorrow_48half") or []
         date_today_str = d.get("date")
         date_tomorrow_str = d.get("tomorrow_date")
 
+        if not date_today_str or not today_half:
+            return []
+
+        try:
+            base_today = date.fromisoformat(date_today_str)
+            base_tomorrow = None
+            if date_tomorrow_str:
+                base_tomorrow = date.fromisoformat(date_tomorrow_str)
+        except (ValueError, AttributeError):
+            return []
+
+        # Перевіряємо чи дні послідовні
+        is_contiguous = False
+        if base_tomorrow:
+            is_contiguous = (base_tomorrow - base_today).days == 1
+
         events: List[CalendarEvent] = []
-        events.extend(self._build_day_events(date_today_str, today_half))
-        events.extend(self._build_day_events(date_tomorrow_str, tomorrow_half))
+
+        if is_contiguous and tomorrow_half:
+            # Об'єднуємо в безперервний потік: 0..47 (сьогодні), 48..95 (завтра)
+            combined_half = today_half + tomorrow_half
+            combined_events = self._build_events_from_stream(base_today, combined_half)
+            events.extend(combined_events)
+        else:
+            # Обробляємо окремо
+            events.extend(self._build_events_from_stream(base_today, today_half))
+            if base_tomorrow and tomorrow_half:
+                events.extend(self._build_events_from_stream(base_tomorrow, tomorrow_half))
 
         # Фільтрація за діапазоном
         filtered: List[CalendarEvent] = []
         for ev in events:
-            # Приводимо до UTC для порівняння (CalendarEvent тримає dt об'єкти)
             ev_start = ev.start if ev.start.tzinfo else dt_util.as_utc(ev.start)
             ev_end = ev.end if ev.end.tzinfo else dt_util.as_utc(ev.end)
-            
-            # Перетин діапазонів
+
             if ev_start < end_date and ev_end > start_date:
                 filtered.append(ev)
 
         return filtered
 
-    def _build_day_events(self, date_str: str | None, halfhours: list[str]) -> List[CalendarEvent]:
-        """Генерує події для одного дня."""
-        if not date_str or not halfhours or len(halfhours) != 48:
-            return []
-
-        base_day = datetime.fromisoformat(date_str).date()
+    def _build_events_from_stream(self, start_date_obj: date, stream: list[str]) -> List[CalendarEvent]:
+        """
+        Парсить безперервний потік напівгодинних слотів починаючи з start_date_obj 00:00.
+        Індекси 0..47 належать start_date_obj.
+        Індекси 48..95 належать start_date_obj + 1 день, тощо.
+        """
         events: List[CalendarEvent] = []
+        if not stream:
+            return events
 
-        current_state = halfhours[0]
+        current_state = stream[0]
         start_idx = 0
 
-        for i in range(1, 48):
-            if halfhours[i] != current_state:
+        for i in range(1, len(stream)):
+            if stream[i] != current_state:
                 if current_state == "off":
-                    events.append(self._make_event(base_day, start_idx, i))
-                current_state = halfhours[i]
+                    events.append(self._make_event_continuous(start_date_obj, start_idx, i))
+                current_state = stream[i]
                 start_idx = i
-
-        # Закриваємо день
+        
+        # Закриваємо останній інтервал
         if current_state == "off":
-            events.append(self._make_event(base_day, start_idx, 48))
+            events.append(self._make_event_continuous(start_date_obj, start_idx, len(stream)))
 
         return events
 
-    def _make_event(self, day, start_idx: int, end_idx: int) -> CalendarEvent:
-        """Створює об'єкт CalendarEvent."""
-        start_h = start_idx // 2
-        start_m = 30 if start_idx % 2 else 0
-        end_h = end_idx // 2
-        end_m = 30 if end_idx % 2 else 0
-
-        start_local = datetime.combine(day, datetime.min.time()).replace(
-            hour=start_h, minute=start_m, tzinfo=TZ_KYIV
-        )
-        
-        if end_idx < 48:
-            end_local = datetime.combine(day, datetime.min.time()).replace(
-                hour=end_h, minute=end_m, tzinfo=TZ_KYIV
+    def _make_event_continuous(self, base_date: date, start_idx: int, end_idx: int) -> CalendarEvent:
+        """
+        Створює подію на основі безперервного потоку індексів.
+        0 = 00:00 базової дати
+        48 = 00:00 базової дати + 1 день
+        96 = 00:00 базової дати + 2 дні
+        """
+        def idx_to_dt(idx):
+            # Зсув у днях
+            days = idx // 48
+            remainder = idx % 48
+            hours = remainder // 2
+            minutes = 30 if remainder % 2 else 0
+            
+            # Будуємо локальний час
+            d = base_date + timedelta(days=days)
+            return datetime.combine(d, datetime.min.time()).replace(
+                hour=hours, minute=minutes, tzinfo=TZ_KYIV
             )
-        else:
-            # Перехід на наступну добу (00:00)
-            end_local = datetime.combine(day + timedelta(days=1), datetime.min.time()).replace(
-                tzinfo=TZ_KYIV
-            )
 
-        # Конвертуємо в UTC
-        start_utc = dt_util.as_utc(start_local)
-        end_utc = dt_util.as_utc(end_local)
+        start_local = idx_to_dt(start_idx)
+        end_local = idx_to_dt(end_idx)
 
         return CalendarEvent(
             summary=f"{self._entry.title}: ❌ Відключення",
-            start=start_utc,
-            end=end_utc,
+            start=dt_util.as_utc(start_local),
+            end=dt_util.as_utc(end_local),
             description=f"Немає світла {start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')}",
         )
 
