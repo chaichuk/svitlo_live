@@ -109,7 +109,23 @@ class SvitloLiveCardEditor extends HTMLElement {
               <input type="color" id="color-off-picker" style="height: 42px; width: 42px; padding: 0; border: none; background: none; cursor: pointer;">
               <ha-textfield id="color-off-input" label="Колір 'Немає світла' (Hex/Name)" style="flex: 1;"></ha-textfield>
             </div>
+            <button id="reset-colors-btn" style="
+              padding: 8px 16px;
+              border-radius: 8px;
+              border: 1px solid var(--divider-color, #e0e0e0);
+              background: rgba(127,127,127,0.08);
+              color: var(--primary-text-color);
+              font-size: 13px;
+              cursor: pointer;
+              transition: background 0.2s;
+              align-self: flex-start;
+            ">Скинути кольори</button>
           </div>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
+          <ha-formfield label="Показувати тіні (об'ємний вигляд)" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="shadow-switch"></ha-switch>
+          </ha-formfield>
 
         </div>
       `;
@@ -258,6 +274,27 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
+
+    const shadowSwitch = this.querySelector("#shadow-switch");
+    if (shadowSwitch) shadowSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_shadow', value: ev.target.checked } }));
+
+    const resetColorsBtn = this.querySelector("#reset-colors-btn");
+    if (resetColorsBtn) {
+      resetColorsBtn.addEventListener("click", () => {
+        const newConfig = { ...this._config };
+        delete newConfig.color_on;
+        delete newConfig.color_off;
+        this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
+        const colorOnInput = this.querySelector("#color-on-input");
+        const colorOnPicker = this.querySelector("#color-on-picker");
+        const colorOffInput = this.querySelector("#color-off-input");
+        const colorOffPicker = this.querySelector("#color-off-picker");
+        if (colorOnInput) colorOnInput.value = '';
+        if (colorOnPicker) colorOnPicker.value = '#1b5e20';
+        if (colorOffInput) colorOffInput.value = '';
+        if (colorOffPicker) colorOffPicker.value = '#7f0000';
+      });
+    }
   }
 
   _updateProperties() {
@@ -325,6 +362,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
+
+    const shsw = this.querySelector("#shadow-switch");
+    if (shsw) shsw.checked = this._config.show_shadow !== false;
   }
 
   _valueChanged(ev) {
@@ -359,7 +399,7 @@ class SvitloLiveCard extends HTMLElement {
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card style="overflow: hidden; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
+        <ha-card id="svitlo-ha-card" style="overflow: hidden; position: relative;">
           <div id="container" style="padding: 16px; position: relative;">
             
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
@@ -373,14 +413,14 @@ class SvitloLiveCard extends HTMLElement {
               </div>
 
               <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 0 auto;">
-                <div id="status" style="font-size: 12px; padding: 4px 14px; border-radius: 8px; font-weight: 700; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15); text-transform: uppercase; letter-spacing: 0.3px; text-align: center;"></div>
-                <div id="emergency-banner" style="display: none; background: linear-gradient(135deg, #c62828 0%, #8e0000 100%); color: rgba(255,255,255,0.9); padding: 3px 14px; border-radius: 6px; font-size: 10px; font-weight: 600; text-align: center; animation: pulse 2s infinite; box-shadow: 0 2px 8px rgba(183, 28, 28, 0.4), inset 0 1px 0 rgba(255,255,255,0.1); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.2px;">
+                <div id="status" style="font-size: 12px; padding: 4px 14px; border-radius: 8px; font-weight: 700; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px; text-align: center;"></div>
+                <div id="emergency-banner" style="display: none; background: linear-gradient(135deg, #c62828 0%, #8e0000 100%); color: rgba(255,255,255,0.9); padding: 3px 14px; border-radius: 6px; font-size: 10px; font-weight: 600; text-align: center; animation: pulse 2s infinite; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.2px;">
                   📢 ЕКСТРЕНІ ВІДКЛЮЧЕННЯ
                 </div>
               </div>
             </div>
 
-            <div id="day-switcher" style="display: flex; gap: 4px; border-radius: 10px; background: rgba(127,127,127,0.08); padding: 3px; margin-bottom: 14px; font-size: 12px; width: fit-content; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+            <div id="day-switcher" style="display: flex; gap: 4px; border-radius: 10px; background: rgba(127,127,127,0.08); padding: 3px; margin-bottom: 14px; font-size: 12px; width: fit-content;">
               <div class="day-tab active" data-day="today" style="padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.25s ease; font-weight: 600;">Сьогодні</div>
               <div class="day-tab" data-day="tomorrow" id="tomorrow-tab" style="padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: all 0.25s ease; display: none; font-weight: 600;">Завтра</div>
             </div>
@@ -394,15 +434,14 @@ class SvitloLiveCard extends HTMLElement {
                   position: relative; !important;
                   background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%); 
                   border: 1px solid rgba(255,255,255,0.08);
-                  box-shadow: 0 4px 15px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.4); 
-                  
+                  z-index: 5;
               ">
                 <div id="now-marker" style="
                     position: absolute; 
                     top: 0; bottom: 0; 
                     width: 3px; 
-                    background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.8) 100%); 
-                    box-shadow: 0 0 12px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.5); 
+                    background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.8) 100%);
+                    z-index: 10;
                     border-radius: 2px;
                 "></div>
               </div>
@@ -419,36 +458,34 @@ class SvitloLiveCard extends HTMLElement {
 
             <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 3px;">
               <div id="left-stat" class="stat-item" style="
-                  background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
+                  background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%);
                   border: 1px solid rgba(127,127,127,0.12);
-                  padding: 3px 6px; 
-                  border-radius: 10px; 
-                  display: flex; 
-                  flex-direction: column; 
-                  justify-content: center; 
-                  align-items: center; 
-                  min-height: 40px; 
+                  padding: 3px 6px;
+                  border-radius: 10px;
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: center;
+                  align-items: center;
+                  min-height: 40px;
                   text-align: center;
                   gap: 2px;
-                  box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
               ">
                 <div id="left-stat-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">--</div>
                 <div id="left-stat-value" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">--</div>
               </div>
 
               <div id="right-stat" class="stat-item" style="
-                  background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
+                  background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%);
                   border: 1px solid rgba(127,127,127,0.12);
-                  padding: 3px 6px; 
-                  border-radius: 10px; 
-                  display: flex; 
-                  flex-direction: column; 
-                  justify-content: center; 
-                  align-items: center; 
-                  min-height: 40px; 
+                  padding: 3px 6px;
+                  border-radius: 10px;
+                  display: flex;
+                  flex-direction: column;
+                  justify-content: center;
+                  align-items: center;
+                  min-height: 40px;
                   text-align: center;
                   gap: 2px;
-                  box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
               ">
                 <div id="right-stat-label" style="font-size: 10px; opacity: 0.5; line-height: 1.3; font-weight: 500;">--</div>
                 <div id="right-stat-value" style="font-size: 18px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; letter-spacing: -0.3px;">--</div>
@@ -457,13 +494,16 @@ class SvitloLiveCard extends HTMLElement {
 
           </div>
           <style>
-            .day-tab.active { 
-              background: var(--primary-color, #03a9f4); 
-              color: #fff; 
+            .day-tab.active {
+              background: var(--primary-color, #03a9f4);
+              color: #fff;
               box-shadow: 0 2px 8px rgba(3, 169, 244, 0.4);
             }
-            .day-tab:not(.active):hover { 
-              background: rgba(127,127,127,0.15); 
+            .no-shadows .day-tab.active {
+              box-shadow: none;
+            }
+            .day-tab:not(.active):hover {
+              background: rgba(127,127,127,0.15);
             }
             @keyframes pulse {
               0% { opacity: 1; transform: scale(1); }
@@ -653,6 +693,47 @@ class SvitloLiveCard extends HTMLElement {
     const showStats = config.show_stats !== false;
     const showActualHistory = config.show_actual_history === true;
     const customStatusEntity = config.status_entity ? hass.states[config.status_entity] : null;
+    const showShadow = config.show_shadow !== false;
+
+    // --- Shadow configuration ---
+    const haCard = this.querySelector('#svitlo-ha-card');
+    if (haCard) {
+      haCard.style.boxShadow = showShadow ? '0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1)' : 'none';
+    }
+    const container = this.querySelector('#container');
+    if (container) {
+      if (!showShadow) container.classList.add('no-shadows');
+      else container.classList.remove('no-shadows');
+    }
+    const statusEl2 = this.querySelector('#status');
+    if (statusEl2) {
+      statusEl2.style.boxShadow = showShadow ? '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)' : 'none';
+    }
+    const eb2 = this.querySelector('#emergency-banner');
+    if (eb2) {
+      eb2.style.boxShadow = showShadow ? '0 2px 8px rgba(183, 28, 28, 0.4), inset 0 1px 0 rgba(255,255,255,0.1)' : 'none';
+    }
+    const daySwitcher2 = this.querySelector('#day-switcher');
+    if (daySwitcher2) {
+      daySwitcher2.style.boxShadow = showShadow ? 'inset 0 1px 3px rgba(0,0,0,0.1)' : 'none';
+    }
+    const timelineEl2 = this.querySelector('#timeline');
+    if (timelineEl2) {
+      timelineEl2.style.boxShadow = showShadow ? '0 4px 15px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.4)' : 'none';
+    }
+    const nowMarker2 = this.querySelector('#now-marker');
+    if (nowMarker2) {
+      nowMarker2.style.boxShadow = showShadow ? '0 0 12px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.5)' : 'none';
+    }
+    const leftStat2 = this.querySelector('#left-stat');
+    if (leftStat2) {
+      leftStat2.style.boxShadow = showShadow ? '0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none';
+    }
+    const rightStat2 = this.querySelector('#right-stat');
+    if (rightStat2) {
+      rightStat2.style.boxShadow = showShadow ? '0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none';
+    }
+    // Active tab shadow is handled via CSS .no-shadows class
 
     const kTime = this._getKyivTime();
     const currentIdx = kTime.h * 2 + (kTime.m >= 30 ? 1 : 0);
@@ -1296,9 +1377,11 @@ class SvitloLiveCard extends HTMLElement {
       const now = new Date();
       if (isDynamic) {
         const pos = (((currentIdx - startOffsetIdx) + (now.getMinutes() % 30) / 30) / schedule.length) * 100;
-        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:2;box-shadow:0 0 12px #fff;`;
+        const markerShadow = showShadow ? 'box-shadow:0 0 12px #fff;' : '';
+        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:2;${markerShadow}`;
       } else if (isToday) {
-        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:2;box-shadow:0 0 8px #fff;`;
+        const markerShadow = showShadow ? 'box-shadow:0 0 8px #fff;' : '';
+        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:2;${markerShadow}`;
       } else nowMarker.style.display = 'none';
     }
 
