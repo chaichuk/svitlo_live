@@ -359,8 +359,8 @@ class SvitloLiveCard extends HTMLElement {
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card style="overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
-          <div id="container" style="padding: 16px;">
+        <ha-card style="overflow: hidden; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
+          <div id="container" style="padding: 16px; position: relative;">
             
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
               <div style="display: flex; flex-direction: column; gap: 0px; flex: 1; min-width: 0;">
@@ -391,11 +391,11 @@ class SvitloLiveCard extends HTMLElement {
                   display: flex; 
                   border-radius: 12px; 
                   overflow: hidden; 
-                  position: relative; 
+                  position: relative; !important;
                   background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%); 
                   border: 1px solid rgba(255,255,255,0.08);
                   box-shadow: 0 4px 15px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.4); 
-                  z-index: 5;
+                  
               ">
                 <div id="now-marker" style="
                     position: absolute; 
@@ -403,7 +403,6 @@ class SvitloLiveCard extends HTMLElement {
                     width: 3px; 
                     background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.8) 100%); 
                     box-shadow: 0 0 12px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.5); 
-                    z-index: 10;
                     border-radius: 2px;
                 "></div>
               </div>
@@ -660,6 +659,8 @@ class SvitloLiveCard extends HTMLElement {
 
     let todayData = attrs.today_48half || [];
     let tomorrowData = attrs.tomorrow_48half || [];
+    let todayHistory = attrs.history_today_48half;
+    let tomorrowHistory = attrs.history_tomorrow_48half;
 
     if (attrs.date) {
       const dateStr = attrs.date.split('T')[0];
@@ -668,6 +669,8 @@ class SvitloLiveCard extends HTMLElement {
       if (dateStr < kyivNowStr) {
         todayData = tomorrowData;
         tomorrowData = [];
+        todayHistory = tomorrowHistory;
+        tomorrowHistory = [];
       }
     }
 
@@ -920,7 +923,7 @@ class SvitloLiveCard extends HTMLElement {
       }
     }
 
-    let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
+    let histories = isToday ? todayHistory : tomorrowHistory;
 
     const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
 
@@ -937,16 +940,28 @@ class SvitloLiveCard extends HTMLElement {
 
         if (config.show_history && histories && Array.isArray(histories) && histories.length > 0) {
           historyTimelineEl.style.display = 'flex';
-          histories.slice(0, 3).forEach(hist => {
+          const histData = Array.isArray(histories[0]) ? histories : [histories];
+          histData.slice(0, 3).forEach(hist => {
             if (!Array.isArray(hist)) return;
             const row = document.createElement('div');
             row.style.display = 'flex';
-            row.style.height = '6px';
+            row.style.height = '8px';
             row.style.marginTop = '2px';
-            row.style.borderRadius = '2px';
+            row.style.borderRadius = '2.5px';
             row.style.overflow = 'hidden';
 
-            hist.slice(startOffsetIdx).forEach(s => {
+            let historyToShow = hist;
+            if (isDynamic) {
+              // У динамічному режимі показуємо історію тільки для сьогоднішніх слотів
+              // Беремо від startOffsetIdx до кінця сьогодні (48)
+              const todayHistoryPart = hist.slice(startOffsetIdx);
+
+              // Додаємо чорні блоки для завтрашніх слотів (немає історії)
+              const tomorrowSlotCount = schedule.length - todayHistoryPart.length;
+              historyToShow = [...todayHistoryPart, ...Array(tomorrowSlotCount).fill('unknown')];
+            }
+
+            historyToShow.forEach(s => {
               const b = document.createElement('div');
               b.style.flex = '1';
               if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
@@ -956,12 +971,6 @@ class SvitloLiveCard extends HTMLElement {
               row.appendChild(b);
             });
 
-            const padCount = schedule.length - hist.slice(startOffsetIdx).length;
-            for (let k = 0; k < padCount; k++) {
-              const b = document.createElement('div');
-              b.style.flex = '1';
-              row.appendChild(b);
-            }
             historyTimelineEl.appendChild(row);
           });
         }
@@ -971,8 +980,8 @@ class SvitloLiveCard extends HTMLElement {
       const occupiedPositions = [];
 
       const addLabel = (text, pos, type = 'normal', priority = false) => {
-        const ZIGZAG_THRESHOLD = 8.3;
-        const SPREAD_THRESHOLD = 16.7;
+        const ZIGZAG_THRESHOLD = 10.0;
+        const SPREAD_THRESHOLD = 14.0;
         const edgeThreshold = 17.0;
 
         if (!priority) {
@@ -1252,7 +1261,7 @@ class SvitloLiveCard extends HTMLElement {
         if (i > 0 && slotInfo.date.getHours() === 0 && slotInfo.date.getMinutes() === 0) {
           const m = document.createElement('div');
           m.className = 'midnight-marker';
-          m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:20;pointer-events:none;transform:translateX(-50%);`;
+          m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:2;pointer-events:none;transform:translateX(-50%);`;
           timelineEl.appendChild(m);
         }
 
@@ -1287,9 +1296,9 @@ class SvitloLiveCard extends HTMLElement {
       const now = new Date();
       if (isDynamic) {
         const pos = (((currentIdx - startOffsetIdx) + (now.getMinutes() % 30) / 30) / schedule.length) * 100;
-        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:10;box-shadow:0 0 12px #fff;`;
+        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:2;box-shadow:0 0 12px #fff;`;
       } else if (isToday) {
-        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:10;box-shadow:0 0 8px #fff;`;
+        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:2;box-shadow:0 0 8px #fff;`;
       } else nowMarker.style.display = 'none';
     }
 
