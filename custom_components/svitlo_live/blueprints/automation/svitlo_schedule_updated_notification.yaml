@@ -185,28 +185,31 @@ action:
           {{ r[k]['events'] | sort(attribute='start') }}
         {% else %}[]{% endif %}
 
-      # FIX #2: Фільтруємо лише майбутні події для підпису (ігноруємо минулі)
-      # Це вирішує проблему з повторними сповіщеннями після опівночі
-      future_events: >-
-        {%- set current_time = now().astimezone(now().tzinfo) -%}
+      # FIX #2: Для підпису беремо події сьогодні + завтра (фіксований період)
+      # Це запобігає зміні підпису коли подія завершується протягом дня
+      # Щоб уникнути хибного спрацювання о 00:00 (зміна дати), є додаткова перевірка години нижче
+      events_for_signature: >-
+        {%- set today = now().astimezone(now().tzinfo).date() -%}
+        {%- set tomorrow = (now().astimezone(now().tzinfo) + timedelta(days=1)).date() -%}
         {%- set ns = namespace(events=[]) -%}
         {%- for e in raw_events -%}
-          {%- set e_end = as_datetime(e.end).astimezone(now().tzinfo) -%}
-          {%- if e_end > current_time -%}
+          {%- set e_start = as_datetime(e.start).astimezone(now().tzinfo) -%}
+          {%- set e_date = e_start.date() -%}
+          {%- if e_date == today or e_date == tomorrow -%}
             {%- set ns.events = ns.events + [e] -%}
           {%- endif -%}
         {%- endfor -%}
         {{ ns.events }}
 
-      # Підпис ЛИШЕ для майбутніх подій
+      # Підпис для подій сьогодні + завтра (незалежно від поточного часу)
       schedule_signature: >-
         {%- set ns = namespace(sig='') -%}
-        {%- for e in future_events -%}
+        {%- for e in events_for_signature -%}
           {%- set s = as_datetime(e.start).strftime('%y%m%d%H%M') -%}
           {%- set t = as_datetime(e.end).strftime('%y%m%d%H%M') -%}
           {%- set ns.sig = ns.sig ~ s ~ t -%}
         {%- endfor -%}
-        {{ ("c=" ~ (future_events|count|string) ~ ";" ~ ns.sig) | trim }}
+        {{ ("c=" ~ (events_for_signature|count|string) ~ ";" ~ ns.sig) | trim }}
 
       # Отримуємо старий запис з helper'а
       stored_data: "{{ states(storage_helper) | default('') }}"
@@ -222,8 +225,12 @@ action:
       emergency_status_changed: "{{ is_emergency != last_was_emergency }}"
 
       # 2. Графік змінився, якщо новий підпис не співпадає зі старим
+      # Але ігноруємо зміни о 00:00-01:00 (технічна зміна дати)
       schedule_has_changed: >-
-        {% if send_on_first_run and stored_data == '' %}
+        {% set current_hour = now().hour %}
+        {% if current_hour == 0 %}
+          false
+        {% elif send_on_first_run and stored_data == '' %}
           true
         {% else %}
           {{ schedule_signature[-250:] != old_signature[-250:] }}
