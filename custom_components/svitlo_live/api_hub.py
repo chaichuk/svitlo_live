@@ -54,13 +54,20 @@ class SvitloApiHub:
 
         merged_regions = {}
 
+        def _normalize_name(name: str, slug: str) -> str:
+            """Ensure oblast-level regions have 'область' suffix for consistent display."""
+            if slug.endswith("-oblast") and "область" not in name.lower():
+                return f"{name} область"
+            return name
+
         # Parse New API (usually higher priority or has different slugs)
         for r in new_data.get("regions", []):
             cpu = r.get("cpu")
             if not cpu: continue
+            raw_name = r.get("name_ua") or r.get("name_en") or cpu
             merged_regions[cpu] = {
                 "id": cpu,
-                "name": r.get("name_ua") or r.get("name_en") or cpu,
+                "name": _normalize_name(raw_name, cpu),
                 "is_new_api": True,
                 "queues": list(r.get("schedule", {}).keys())
             }
@@ -80,9 +87,10 @@ class SvitloApiHub:
                 schedule = r.get("schedule")
                 if schedule is None: continue
                 
+                raw_name = r.get("name_ua") or r.get("name_en") or target_id
                 merged_regions[target_id] = {
                     "id": target_id,
-                    "name": r.get("name_ua") or r.get("name_en") or target_id,
+                    "name": _normalize_name(raw_name, target_id),
                     "is_new_api": False,
                     "queues": list(schedule.keys())
                 }
