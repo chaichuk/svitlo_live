@@ -40,12 +40,15 @@ class SvitloLiveCardEditor extends HTMLElement {
             <option value="">Завантаження списку...</option>
           </select>
 
-
-
-
-
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор екстрених відключень (необов'язково):</label>
           <div id="emergency-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор повітряної тривоги (необов'язково):</label>
+          <div id="air-alert-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <ha-formfield label="Вмикати анімацію тривоги" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="air-alert-animation-switch"></ha-switch>
+          </ha-formfield>
 
           <ha-formfield label="Динамічний таймлайн (показувати наступні 24 години, якщо графік опубліковано)" style="display: flex; align-items: center; margin-top: 8px;">
             <ha-switch id="dynamic-switch"></ha-switch>
@@ -95,15 +98,36 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="priority-switch"></ha-switch>
           </ha-formfield>
 
-          <div id="actual-calendar-section">
-            <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Календар фактичних відключень (необов'язково):</label>
-            <div style="font-size: 11px; opacity: 0.6; margin: 2px 0 4px 0;">Якщо обрано — минулі слоти таймлайну показуватимуть фактичні відключення з календаря замість планових</div>
-            <div id="actual-calendar-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
-            
-            <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
-               <ha-switch id="actual-history-switch"></ha-switch>
-            </ha-formfield>
+          <ha-formfield label="Інвертувати сенсор (ON = немає світла)" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="invert-switch"></ha-switch>
+          </ha-formfield>
+
+          <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="actual-history-switch"></ha-switch>
+          </ha-formfield>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
+          <ha-formfield label="Показувати тінь картки" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="shadow-switch"></ha-switch>
+          </ha-formfield>
+
+          <div style="display: flex; gap: 12px; margin-top: 12px;">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 12px; font-weight: 500;">Колір "є світло"</label>
+              <input type="color" id="color-on-picker" style="width: 100%; height: 40px; padding: 0; border: 1px solid var(--divider-color); border-radius: 6px; cursor: pointer; background: none;">
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 12px; font-weight: 500;">Колір "немає світла"</label>
+              <input type="color" id="color-off-picker" style="width: 100%; height: 40px; padding: 0; border: 1px solid var(--divider-color); border-radius: 6px; cursor: pointer; background: none;">
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 12px; font-weight: 500;">Колір "невідомо"</label>
+              <input type="color" id="color-unknown-picker" style="width: 100%; height: 40px; padding: 0; border: 1px solid var(--divider-color); border-radius: 6px; cursor: pointer; background: none;">
+            </div>
           </div>
+
+          <button id="reset-colors-btn" style="margin-top: 8px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); cursor: pointer; font-size: 13px;">Скинути кольори</button>
+
         </div>
       `;
 
@@ -118,13 +142,13 @@ class SvitloLiveCardEditor extends HTMLElement {
       if (currentCount !== entities.length || selector.options.length <= 1) {
         const currentVal = this._config.entity || "";
         const optionsHtml = `
-              <option value="" ${!currentVal ? "selected" : ""}>--- Оберіть зі списку (${entities.length} знайдено) ---</option>
-              ${entities.sort().map(eid => {
+          <option value="" ${!currentVal ? "selected" : ""}>--- Оберіть зі списку (${entities.length} знайдено) ---</option>
+          ${entities.sort().map(eid => {
           const state = this._hass.states[eid];
           const friendlyName = state?.attributes?.friendly_name || eid;
           return `<option value="${eid}">${friendlyName}</option>`;
         }).join('')}
-            `;
+        `;
         selector.innerHTML = optionsHtml;
         selector.dataset.count = entities.length;
       }
@@ -161,6 +185,19 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._emergencySelector = selector;
     }
 
+    const airAlertContainer = this.querySelector("#air-alert-picker-container");
+    if (airAlertContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['binary_sensor', 'input_boolean', 'switch', 'sensor'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'air_alert_entity', value: ev.detail.value } });
+      });
+      airAlertContainer.innerHTML = "";
+      airAlertContainer.appendChild(selector);
+      this._airAlertSelector = selector;
+    }
+
     const scheduleContainer = this.querySelector("#schedule-picker-container");
     if (scheduleContainer) {
       const selector = document.createElement("ha-selector");
@@ -173,24 +210,32 @@ class SvitloLiveCardEditor extends HTMLElement {
       scheduleContainer.appendChild(selector);
       this._scheduleSelector = selector;
     }
-
-    const actualCalendarContainer = this.querySelector("#actual-calendar-picker-container");
-    if (actualCalendarContainer) {
-      const selector = document.createElement("ha-selector");
-      selector.hass = this._hass;
-      selector.selector = { entity: { domain: ['calendar'], integration: 'svitlo_live' } };
-      selector.addEventListener("value-changed", (ev) => {
-        this._valueChanged({ target: { configValue: 'actual_outage_calendar_entity', value: ev.detail.value } });
-      });
-      actualCalendarContainer.innerHTML = "";
-      actualCalendarContainer.appendChild(selector);
-      this._actualCalendarSelector = selector;
-    }
   }
 
   _setupEventListeners() {
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'title', value: ev.target.value } }));
+
+    const colorOnPicker = this.querySelector("#color-on-picker");
+    if (colorOnPicker) {
+      colorOnPicker.addEventListener("input", (ev) => {
+        this._valueChanged({ target: { configValue: 'color_on', value: ev.target.value } });
+      });
+    }
+
+    const colorOffPicker = this.querySelector("#color-off-picker");
+    if (colorOffPicker) {
+      colorOffPicker.addEventListener("input", (ev) => {
+        this._valueChanged({ target: { configValue: 'color_off', value: ev.target.value } });
+      });
+    }
+
+    const colorUnknownPicker = this.querySelector("#color-unknown-picker");
+    if (colorUnknownPicker) {
+      colorUnknownPicker.addEventListener("input", (ev) => {
+        this._valueChanged({ target: { configValue: 'color_unknown', value: ev.target.value } });
+      });
+    }
 
     const selector = this.querySelector("#entity-selector");
     if (selector) selector.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'entity', value: ev.target.value } }));
@@ -199,12 +244,11 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (prioritySwitch) {
       prioritySwitch.addEventListener("change", (ev) => {
         this._valueChanged({ target: { configValue: 'use_status_entity', value: ev.target.checked } });
-
-        // Toggle Actual Calendar Visibility
-        const acSection = this.querySelector("#actual-calendar-section");
-        if (acSection) acSection.style.display = ev.target.checked ? 'block' : 'none';
       });
     }
+
+    const invertSwitch = this.querySelector("#invert-switch");
+    if (invertSwitch) invertSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'invert_status_entity', value: ev.target.checked } }));
 
     const dynamicSwitch = this.querySelector("#dynamic-switch");
     if (dynamicSwitch) dynamicSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'dynamic_timeline', value: ev.target.checked } }));
@@ -235,12 +279,44 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
+
+    const shadowSwitch = this.querySelector("#shadow-switch");
+    if (shadowSwitch) shadowSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_shadow', value: ev.target.checked } }));
+
+    const airAlertAnimSwitch = this.querySelector("#air-alert-animation-switch");
+    if (airAlertAnimSwitch) airAlertAnimSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'air_alert_animation', value: ev.target.checked } }));
+
+    const resetColorsBtn = this.querySelector("#reset-colors-btn");
+    if (resetColorsBtn) {
+      resetColorsBtn.addEventListener("click", () => {
+        const colorOnPicker = this.querySelector("#color-on-picker");
+        const colorOffPicker = this.querySelector("#color-off-picker");
+        const colorUnknownPicker = this.querySelector("#color-unknown-picker");
+        if (colorOnPicker) colorOnPicker.value = '#1b5e20';
+        if (colorOffPicker) colorOffPicker.value = '#7f0000';
+        if (colorUnknownPicker) colorUnknownPicker.value = '#444444';
+        const newConfig = { ...this._config };
+        delete newConfig.color_on;
+        delete newConfig.color_off;
+        delete newConfig.color_unknown;
+        this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
+      });
+    }
   }
 
   _updateProperties() {
     if (!this._hass || !this._config) return;
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.value = this._config.title || '';
+
+    const colorOnPicker = this.querySelector("#color-on-picker");
+    if (colorOnPicker) colorOnPicker.value = this._config.color_on || '#1b5e20';
+
+    const colorOffPicker = this.querySelector("#color-off-picker");
+    if (colorOffPicker) colorOffPicker.value = this._config.color_off || '#7f0000';
+
+    const colorUnknownPicker = this.querySelector("#color-unknown-picker");
+    if (colorUnknownPicker) colorUnknownPicker.value = this._config.color_unknown || '#444444';
 
     if (this._statusSelector) {
       this._statusSelector.hass = this._hass;
@@ -252,14 +328,16 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._emergencySelector.value = this._config.emergency_entity || '';
     }
 
-    const ps = this.querySelector("#priority-switch");
-    if (ps) {
-      ps.checked = this._config.use_status_entity || false;
-
-      // Update Actual Calendar Visibility on Init
-      const acSection = this.querySelector("#actual-calendar-section");
-      if (acSection) acSection.style.display = ps.checked ? 'block' : 'none';
+    if (this._airAlertSelector) {
+      this._airAlertSelector.hass = this._hass;
+      this._airAlertSelector.value = this._config.air_alert_entity || '';
     }
+
+    const ps = this.querySelector("#priority-switch");
+    if (ps) ps.checked = this._config.use_status_entity || false;
+
+    const invs = this.querySelector("#invert-switch");
+    if (invs) invs.checked = this._config.invert_status_entity || false;
 
     const ds = this.querySelector("#dynamic-switch");
     if (ds) ds.checked = this._config.dynamic_timeline || false;
@@ -291,13 +369,14 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector.value = this._config.schedule_entity || '';
     }
 
-    if (this._actualCalendarSelector) {
-      this._actualCalendarSelector.hass = this._hass;
-      this._actualCalendarSelector.value = this._config.actual_outage_calendar_entity || '';
-    }
-
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
+
+    const shs = this.querySelector("#shadow-switch");
+    if (shs) shs.checked = this._config.show_shadow !== false;
+
+    const aaas = this.querySelector("#air-alert-animation-switch");
+    if (aaas) aaas.checked = this._config.air_alert_animation !== false;
   }
 
   _valueChanged(ev) {
@@ -317,11 +396,23 @@ class SvitloLiveCard extends HTMLElement {
     this._selectedDay = 'today';
   }
 
+  _isStateOff(s) {
+    if (!s) return false;
+    const val = String(s).toLowerCase();
+    return ['off', 'grid off', 'grid-off', 'unavailable', '0', 'false'].includes(val);
+  }
+
+  _isStateUnknown(s) {
+    if (!s) return true;
+    const val = String(s).toLowerCase();
+    return ['unknown', 'none', 'null', 'undefined'].includes(val);
+  }
+
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card style="overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
-          <div id="container" style="padding: 16px;">
+        <ha-card id="svitlo-card" style="overflow: hidden; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
+          <div id="container" style="padding: 16px; position: relative;">
             
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
               <div style="display: flex; flex-direction: column; gap: 0px; flex: 1; min-width: 0;">
@@ -352,25 +443,18 @@ class SvitloLiveCard extends HTMLElement {
                   display: flex; 
                   border-radius: 12px; 
                   overflow: hidden; 
-                  position: relative; 
+                  position: relative; !important;
                   background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%); 
                   border: 1px solid rgba(255,255,255,0.08);
                   box-shadow: 0 4px 15px rgba(0,0,0,0.3), inset 0 2px 4px rgba(0,0,0,0.4); 
-                  z-index: 5;
+                  
               ">
-                <div id="actual-timeline" style="
-                    position: absolute; 
-                    top: 0; left: 0; right: 0; bottom: 0; 
-                    pointer-events: none; 
-                    z-index: 8;
-                "></div>
                 <div id="now-marker" style="
                     position: absolute; 
                     top: 0; bottom: 0; 
                     width: 3px; 
                     background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.8) 100%); 
                     box-shadow: 0 0 12px rgba(255,255,255,0.9), 0 0 20px rgba(255,255,255,0.5); 
-                    z-index: 10;
                     border-radius: 2px;
                 "></div>
               </div>
@@ -438,6 +522,20 @@ class SvitloLiveCard extends HTMLElement {
               50% { opacity: 0.92; transform: scale(0.995); }
               100% { opacity: 1; transform: scale(1); }
             }
+            @keyframes air-alert-pulse {
+              0%, 100% { 
+                box-shadow: 0 0 8px 1px rgba(255, 0, 0, 0.6),
+                            0 0 12px 2px rgba(255, 0, 0, 0.4);
+              }
+              50% { 
+                box-shadow: 0 0 12px 2px rgba(255, 0, 0, 0.9),
+                            0 0 18px 3px rgba(255, 0, 0, 0.6);
+              }
+            }
+            ha-card.air-alert-active {
+              animation: air-alert-pulse 2s ease-in-out infinite;
+              border: 3px solid rgba(255, 0, 0, 0.8);
+            }
             .timeline-block {
                position: relative;
                z-index: 1;
@@ -455,6 +553,18 @@ class SvitloLiveCard extends HTMLElement {
             .stat-item:active {
                transform: scale(0.98);
             }
+            ha-card.no-shadows {
+               box-shadow: none !important;
+            }
+            ha-card.no-shadows .stat-item {
+               box-shadow: none !important;
+            }
+            ha-card.no-shadows #status {
+               box-shadow: none !important;
+            }
+            ha-card.no-shadows #timeline {
+               box-shadow: none !important;
+            }
           </style>
         </ha-card>
       `;
@@ -469,40 +579,129 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     this._hass = hass;
-    if (this.config && this.config.actual_outage_calendar_entity) {
-      this._fetchActualOutages(hass);
+    if (this.config && this.config.show_actual_history) {
+      this._fetchHistoryFromEntity(hass);
     }
     this._renderWithCurrentDay(hass);
   }
 
-  async _fetchActualOutages(hass) {
-    if (!this.config || !this.config.actual_outage_calendar_entity) return;
+  async _fetchHistoryFromEntity(hass) {
+    if (!this.config || !this.config.show_actual_history) return;
+
+    let entityId = this.config.status_entity || this.config.entity;
+    if (!entityId) return;
 
     const now = Date.now();
-    if (this._lastCalendarFetch && (now - this._lastCalendarFetch < 30000)) return;
-    this._lastCalendarFetch = now;
+    if (this._lastHistoryFetch && (now - this._lastHistoryFetch < 60000)) return;
+    this._lastHistoryFetch = now;
 
     const startRange = new Date(now - 24 * 60 * 60 * 1000);
-    const endRange = new Date(now + 48 * 60 * 60 * 1000);
+    const endRange = new Date(now);
 
     try {
-      const entityId = this.config.actual_outage_calendar_entity;
       const startISO = startRange.toISOString();
       const endISO = endRange.toISOString();
 
       const response = await hass.callApi(
         'GET',
-        `calendars/${entityId}?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`
+        `history/period/${startISO}?filter_entity_id=${entityId}&end_time=${endISO}&minimal_response`
       );
-      const rawEvents = Array.isArray(response) ? response : [];
-      this._actualOutages = rawEvents.filter(ev => {
-        const s = new Date(ev.start.dateTime || ev.start.date).getTime();
-        const e = new Date(ev.end.dateTime || ev.end.date).getTime();
-        return (e - s) >= 15 * 60000;
+
+      const rawHistory = (response && response[0]) ? response[0] : [];
+
+      const intervals = [];
+      let currentStart = null;
+      let currentState = null;
+
+      rawHistory.forEach((hItem) => {
+        let itemState = 'on';
+        if (this._isStateOff(hItem.state)) itemState = 'off';
+        else if (this._isStateUnknown(hItem.state)) itemState = 'unknown';
+
+        if (this.config && this.config.invert_status_entity && itemState !== 'unknown') {
+          itemState = (itemState === 'on') ? 'off' : 'on';
+        }
+
+        const itemTime = new Date(hItem.last_changed).getTime();
+
+        if (currentStart === null) {
+          currentStart = itemTime;
+          currentState = itemState;
+        } else {
+          if (itemState !== currentState) {
+            intervals.push({ state: currentState, start: currentStart, end: itemTime });
+            currentStart = itemTime;
+            currentState = itemState;
+          }
+        }
       });
+
+      if (currentStart !== null) {
+        intervals.push({ state: currentState, start: currentStart, end: Date.now() });
+      }
+
+      // Фільтрація коротких переключень (<15 хв)
+      const MIN_DURATION_MS = 15 * 60 * 1000;
+      const filteredIntervals = [];
+
+      for (let i = 0; i < intervals.length; i++) {
+        const interval = intervals[i];
+        const duration = interval.end - interval.start;
+
+        if (duration >= MIN_DURATION_MS) {
+          filteredIntervals.push(interval);
+          continue;
+        }
+
+        const prevInterval = intervals[i - 1];
+        const nextInterval = intervals[i + 1];
+
+        if (prevInterval && nextInterval &&
+          prevInterval.state === nextInterval.state &&
+          interval.state !== prevInterval.state) {
+          continue;
+        }
+
+        filteredIntervals.push(interval);
+      }
+
+      // Об'єднання сусідніх інтервалів з однаковим станом
+      const mergedIntervals = [];
+      for (let i = 0; i < filteredIntervals.length; i++) {
+        const current = filteredIntervals[i];
+
+        if (mergedIntervals.length === 0) {
+          mergedIntervals.push(current);
+          continue;
+        }
+
+        const last = mergedIntervals[mergedIntervals.length - 1];
+
+        if (last.state === current.state) {
+          last.end = current.end;
+        } else {
+          mergedIntervals.push(current);
+        }
+      }
+
+      this._actualOutages = mergedIntervals
+        .filter(i => i.state === 'off')
+        .map(i => ({
+          start: { dateTime: new Date(i.start).toISOString() },
+          end: { dateTime: new Date(i.end).toISOString() }
+        }));
+
+      this._unknownIntervals = mergedIntervals
+        .filter(i => i.state === 'unknown')
+        .map(i => ({
+          start: { dateTime: new Date(i.start).toISOString() },
+          end: { dateTime: new Date(i.end).toISOString() }
+        }));
+
       this._renderWithCurrentDay(hass);
+
     } catch (e) {
-      console.warn("SvitloLive: Error fetching calendar events", e);
+      console.warn("SvitloLive: Error fetching entity history", e);
     }
   }
 
@@ -517,6 +716,15 @@ class SvitloLiveCard extends HTMLElement {
     const config = this.config;
     if (!config || !config.entity || !hass.states[config.entity]) return;
 
+    const card = this.querySelector('#svitlo-card');
+    if (card) {
+      if (config.show_shadow === false) {
+        card.classList.add('no-shadows');
+      } else {
+        card.classList.remove('no-shadows');
+      }
+    }
+
     const stateObj = hass.states[config.entity];
     const attrs = stateObj.attributes;
 
@@ -527,30 +735,20 @@ class SvitloLiveCard extends HTMLElement {
     const kTime = this._getKyivTime();
     const currentIdx = kTime.h * 2 + (kTime.m >= 30 ? 1 : 0);
 
-    // Verify Data Freshness (Handle Midnight Rollover)
-    // If attrs.date is Yesterday, we should use tomorrow_48half as Today.
     let todayData = attrs.today_48half || [];
     let tomorrowData = attrs.tomorrow_48half || [];
-    let history_today = attrs.history_today_48half || [];
-    let history_tomorrow = attrs.history_tomorrow_48half || [];
+    let todayHistory = attrs.history_today_48half;
+    let tomorrowHistory = attrs.history_tomorrow_48half;
 
     if (attrs.date) {
-      // Parse attrs.date (YYYY-MM-DD or ISO)
       const dateStr = attrs.date.split('T')[0];
-      const kyivNowStr = new Date().toLocaleString("en-CA", { timeZone: "Europe/Kyiv" }).split(',')[0]; // "YYYY-MM-DD"
+      const kyivNowStr = new Date().toLocaleString("en-CA", { timeZone: "Europe/Kyiv" }).split(',')[0];
 
       if (dateStr < kyivNowStr) {
-        // Data is STALE (Yesterday).
-        // Shift Tomorrow -> Today
         todayData = tomorrowData;
         tomorrowData = [];
-        // Also shift history if needed?
-        // Usually history attributes are separate, but if we shift schedule, we might need to shift history or rely on coordinator rollover.
-        // Let's rely on coordinator for history, but for DISPLAY of future schedule, we shift.
-      } else if (dateStr > kyivNowStr) {
-        // Data is FUTURE (Tomorrow is Today? Unlikely for this provider).
-        // But if so, we might have skipped a day?
-        // Treating as is for safety.
+        todayHistory = tomorrowHistory;
+        tomorrowHistory = [];
       }
     }
 
@@ -581,16 +779,24 @@ class SvitloLiveCard extends HTMLElement {
     const rulerEl = this.querySelector('#ruler');
     const powerIcon = this.querySelector('#power-icon');
     const durationLabel = this.querySelector('#duration-label');
-    const actualTimelineEl = this.querySelector('#actual-timeline');
-    if (actualTimelineEl) actualTimelineEl.innerHTML = '';
 
     const formatTime = (d) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-    const toLocalDisplay = (targetIdx) => {
-      const diffSlots = targetIdx - currentIdx;
-      const diffMs = diffSlots * 30 * 60 * 1000;
+
+    const getBaselineDate = () => {
       const now = new Date();
-      const startOfCurrentSlotMs = now.getTime() - ((now.getMinutes() % 30) * 60000) - (now.getSeconds() * 1000);
-      const targetDate = new Date(startOfCurrentSlotMs + diffMs);
+      const kyivTimeStr = now.toLocaleTimeString("en-US", { timeZone: "Europe/Kyiv", hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const [h, m, s] = kyivTimeStr.split(':').map(Number);
+      const msSinceMidnight = (h * 3600 + m * 60 + s) * 1000;
+      const kyivMidnightMs = now.getTime() - msSinceMidnight;
+      const date = new Date(kyivMidnightMs);
+      date.setMilliseconds(0);
+      return date;
+    };
+
+    const baselineDate = getBaselineDate();
+
+    const toLocalDisplay = (targetIdx) => {
+      const targetDate = new Date(baselineDate.getTime() + (targetIdx * 30 * 60 * 1000));
       return { time: formatTime(targetDate), date: targetDate };
     };
 
@@ -599,7 +805,8 @@ class SvitloLiveCard extends HTMLElement {
 
     const getLocalDayOffsetSlots = () => {
       const now = new Date();
-      const localMidnight = new Date(now); localMidnight.setHours(0, 0, 0, 0);
+      const localMidnight = new Date(now);
+      localMidnight.setHours(0, 0, 0, 0);
       const kyivTimeStr = localMidnight.toLocaleTimeString("en-US", { timeZone: "Europe/Kyiv", hour12: false, hour: '2-digit', minute: '2-digit' });
       const [kh, km] = kyivTimeStr.split(':').map(Number);
       return kh * 2 + (km >= 30 ? 1 : 0);
@@ -623,7 +830,6 @@ class SvitloLiveCard extends HTMLElement {
     let isOffCurrent = (schedState === 'off');
     let isUnknownCurrent = (schedState === 'unknown' || schedState === 'nosched' || !schedState);
 
-    // Explicitly handle Stats visibility
     const statsEl = this.querySelector('#stats');
     if (statsEl) {
       if (showStats) statsEl.style.display = 'grid';
@@ -632,12 +838,19 @@ class SvitloLiveCard extends HTMLElement {
 
     if (customStatusEntity && config.use_status_entity) {
       const cs = customStatusEntity.state;
-      if (['off', 'Grid OFF', 'Grid-OFF', 'unavailable', '0', 'false'].includes(cs)) {
-        isOffCurrent = true; isUnknownCurrent = false;
-      } else if (['on', 'Grid ON', '1', 'true'].includes(cs)) {
-        isOffCurrent = false; isUnknownCurrent = false;
+      if (this._isStateOff(cs)) {
+        isOffCurrent = true;
+        isUnknownCurrent = false;
+      } else if (this._isStateUnknown(cs)) {
+        isUnknownCurrent = true;
+        isOffCurrent = false;
       } else {
-        isUnknownCurrent = true; isOffCurrent = false;
+        isOffCurrent = false;
+        isUnknownCurrent = false;
+      }
+
+      if (config.invert_status_entity && !isUnknownCurrent) {
+        isOffCurrent = !isOffCurrent;
       }
     }
 
@@ -645,10 +858,14 @@ class SvitloLiveCard extends HTMLElement {
 
     if (statusEl) {
       if (isUnknownCurrent) {
-        statusEl.innerText = 'НЕВІДОМО'; statusEl.style.background = '#333'; statusEl.style.color = '#aaa';
+        statusEl.innerText = 'НЕВІДОМО';
+        statusEl.style.background = '#333';
+        statusEl.style.color = '#aaa';
       } else {
+        const COLOR_ON = config.color_on || '#1b5e20';
+        const COLOR_OFF = config.color_off || '#7f0000';
         statusEl.innerText = isToday || isDynamic ? (isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО') : 'ГРАФІК НА ЗАВТРА';
-        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? '#7f0000' : '#1b5e20') : '#333';
+        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? COLOR_OFF : COLOR_ON) : '#333';
         statusEl.style.color = '#fff';
       }
     }
@@ -663,31 +880,96 @@ class SvitloLiveCard extends HTMLElement {
     }
     if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
-    let rulerChangeTime = (config.use_status_entity && customStatusEntity && !isUnknownCurrent) ? new Date(customStatusEntity.last_changed) : null;
-
-    // Fallback using Schedule if rulerChangeTime is not set (Status Entity missing or inactive)
-    if (!rulerChangeTime) {
-      // We use the Schedule (Plan) to determine "history"
-      const relativeCurrentIdx = currentIdx - startOffsetIdx;
-      const currentPlan = schedule[relativeCurrentIdx] || 'unknown';
-
-      let foundIdx = -1;
-      // Search backwards from current slot
-      for (let i = relativeCurrentIdx - 1; i >= 0; i--) {
-        if (schedule[i] !== currentPlan) {
-          foundIdx = i;
-          break;
-        }
+    // ПЕРЕВІРКА ПОВІТРЯНОЇ ТРИВОГИ
+    let isAirAlert = false;
+    if (config.air_alert_entity && config.air_alert_animation !== false) {
+      const airAlertState = hass.states[config.air_alert_entity];
+      if (airAlertState && (airAlertState.state === 'on' || airAlertState.state === 'true' || airAlertState.state === 'active')) {
+        isAirAlert = true;
       }
+    }
 
-      if (foundIdx !== -1) {
-        // Transition happens at the end of foundIdx (start of foundIdx + 1)
-        const changeIdx = startOffsetIdx + foundIdx + 1;
-        rulerChangeTime = toLocalDisplay(changeIdx).date;
+    // Додаємо/прибираємо клас анімації
+    if (card) {
+      if (isAirAlert) {
+        card.classList.add('air-alert-active');
       } else {
-        // No change found in the visible schedule window.
-        // Default to the start of the visible window.
-        rulerChangeTime = toLocalDisplay(startOffsetIdx).date;
+        card.classList.remove('air-alert-active');
+      }
+    }
+
+    let rulerChangeTime = null;
+
+    if (config.use_status_entity && !isOffCurrent && !isUnknownCurrent && this._actualOutages) {
+      const nowMs = new Date().getTime();
+      let lastOutageEnd = null;
+      this._actualOutages.forEach(ev => {
+        const e = new Date(ev.end.dateTime || ev.end.date);
+        const eMs = e.getTime();
+        if (eMs <= nowMs + 60000) {
+          if (!lastOutageEnd || eMs > lastOutageEnd.getTime()) {
+            lastOutageEnd = e;
+          }
+        }
+      });
+      if (lastOutageEnd) {
+        rulerChangeTime = lastOutageEnd;
+      }
+    }
+
+    if (!rulerChangeTime) {
+      if (config.use_status_entity && customStatusEntity && !isUnknownCurrent) {
+        const nowMs = new Date().getTime();
+        const allIntervals = [...(this._actualOutages || []), ...(this._unknownIntervals || [])];
+
+        if (allIntervals.length > 0) {
+          allIntervals.sort((a, b) => {
+            const aEnd = new Date(a.end.dateTime || a.end.date).getTime();
+            const bEnd = new Date(b.end.dateTime || b.end.date).getTime();
+            return bEnd - aEnd;
+          });
+
+          let lastRealChange = null;
+          for (const interval of allIntervals) {
+            const endMs = new Date(interval.end.dateTime || interval.end.date).getTime();
+            if (endMs <= nowMs + 60000) {
+              lastRealChange = new Date(interval.end.dateTime || interval.end.date);
+              break;
+            }
+          }
+
+          if (isOffCurrent && this._actualOutages && this._actualOutages.length > 0) {
+            const currentOutage = this._actualOutages.find(outage => {
+              const startMs = new Date(outage.start.dateTime || outage.start.date).getTime();
+              const endMs = new Date(outage.end.dateTime || outage.end.date).getTime();
+              return startMs <= nowMs && endMs >= nowMs - 60000;
+            });
+
+            if (currentOutage) {
+              lastRealChange = new Date(currentOutage.start.dateTime || currentOutage.start.date);
+            }
+          }
+
+          rulerChangeTime = lastRealChange;
+        } else {
+          rulerChangeTime = new Date(customStatusEntity.last_changed);
+        }
+      } else {
+        const relativeCurrentIdx = currentIdx - startOffsetIdx;
+        const currentPlan = schedule[relativeCurrentIdx] || 'unknown';
+        let foundIdx = -1;
+        for (let i = relativeCurrentIdx - 1; i >= 0; i--) {
+          if (schedule[i] !== currentPlan) {
+            foundIdx = i;
+            break;
+          }
+        }
+        if (foundIdx !== -1) {
+          const changeIdx = startOffsetIdx + foundIdx + 1;
+          rulerChangeTime = toLocalDisplay(changeIdx).date;
+        } else {
+          rulerChangeTime = toLocalDisplay(startOffsetIdx).date;
+        }
       }
     }
 
@@ -699,7 +981,7 @@ class SvitloLiveCard extends HTMLElement {
           powerIcon.style.color = '#ef5350';
         } else {
           powerIcon.setAttribute('icon', 'mdi:lightbulb-on');
-          powerIcon.style.color = '#fdd835'; // Restrained yellow
+          powerIcon.style.color = '#fdd835';
         }
       } else {
         powerIcon.style.display = 'none';
@@ -707,63 +989,55 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     let changeSlotIdx = -1;
-    let overlayPos = 0;
-
     if (rulerChangeTime) {
-      // Calculate overlay/split position logic
       const diffMs = rulerChangeTime.getTime() - toLocalDisplay(currentIdx).date.getTime();
       const diffSlots = Math.floor(diffMs / 1800000);
       changeSlotIdx = currentIdx + diffSlots;
-
-      const slotStartMs = toLocalDisplay(changeSlotIdx).date.getTime();
-      const msInside = rulerChangeTime.getTime() - slotStartMs;
-      overlayPos = Math.max(0, Math.min(100, (msInside / 1800000) * 100));
-      if (overlayPos < 16.0) overlayPos = 0;
     }
-
-    const cutoffIdx = (config.use_status_entity && rulerChangeTime && config.use_status_entity) ? changeSlotIdx : currentIdx;
 
     const effectiveSchedule = schedule.map((state, i) => {
       const absIdx = startOffsetIdx + i;
       const isPast = absIdx < currentIdx;
 
-      if (isPast && isToday && config.actual_outage_calendar_entity && showActualHistory) {
-        if (config.use_status_entity && rulerChangeTime && absIdx >= changeSlotIdx) { /* skip */ }
-        else {
-          if (!this._actualOutages) return 'on';
-          const slotStartMs = toLocalDisplay(absIdx).date.getTime();
-          const slotEndMs = slotStartMs + 1800000;
-          let overlap = 0;
-          for (const ev of this._actualOutages) {
+      if (isPast && isToday && config.show_actual_history && showActualHistory) {
+        const slotStartMs = toLocalDisplay(absIdx).date.getTime();
+        const slotEndMs = slotStartMs + 1800000;
+
+        if (this._unknownIntervals) {
+          let uOverlap = 0;
+          for (const ev of this._unknownIntervals) {
             const s = new Date(ev.start.dateTime || ev.start.date).getTime();
             const e = new Date(ev.end.dateTime || ev.end.date).getTime();
-            const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
-            if (oE > oS) overlap += (oE - oS);
+            const oS = Math.max(s, slotStartMs);
+            const oE = Math.min(e, slotEndMs);
+            if (oE > oS) uOverlap += (oE - oS);
           }
-          return (overlap > 15 * 60000) ? 'off' : 'on';
+          if (uOverlap > 0) return 'unknown';
         }
-      }
 
-      if (config.use_status_entity && rulerChangeTime) {
-        if (absIdx > changeSlotIdx && absIdx < currentIdx) return currentSlotState;
-        if (absIdx === changeSlotIdx) return isOffCurrent ? 'on' : 'off';
+        if (!this._actualOutages) return 'on';
+        let overlap = 0;
+        for (const ev of this._actualOutages) {
+          const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+          const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+          const oS = Math.max(s, slotStartMs);
+          const oE = Math.min(e, slotEndMs);
+          if (oE > oS) overlap += (oE - oS);
+        }
+        return (overlap > 0) ? 'off' : 'on';
       }
-
-      if (absIdx === currentIdx && !config.use_status_entity) return currentSlotState;
       return state || 'unknown';
     });
 
     if (historyLabelEl) {
-      // Show label if rulerChangeTime exists AND config allows it
       if (rulerChangeTime && config.show_change_time !== false) {
         historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${formatTime(rulerChangeTime)}`;
-      } else historyLabelEl.innerText = isToday ? '' : (attrs.tomorrow_date || "");
+      } else {
+        historyLabelEl.innerText = isToday ? '' : (attrs.tomorrow_date || "");
+      }
     }
 
     if (durationLabel) {
-      // Relaxed condition: Show duration if we have a time, regardless of 'Use Status Entity'.
-      // Only check isUnknownCurrent? If isOffCurrent/isOnCurrent is derived from Schedule, it's valid.
-      // We assume if rulerChangeTime exists, we want to show duration.
       if (rulerChangeTime && (config.show_duration !== false)) {
         durationLabel.style.display = 'block';
         const updateDuration = () => {
@@ -779,7 +1053,9 @@ class SvitloLiveCard extends HTMLElement {
       }
     }
 
-    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${rulerChangeTime}_${isEmergency}`;
+    let histories = isToday ? todayHistory : tomorrowHistory;
+
+    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
 
     if (timelineEl && this._lastRenderedKey !== scheduleKey) {
       this._lastRenderedKey = scheduleKey;
@@ -789,25 +1065,38 @@ class SvitloLiveCard extends HTMLElement {
 
       const historyTimelineEl = this.querySelector('#history-timeline');
       if (historyTimelineEl) {
-        historyTimelineEl.innerHTML = ''; historyTimelineEl.style.display = 'none';
-        let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
+        historyTimelineEl.innerHTML = '';
+        historyTimelineEl.style.display = 'none';
+
         if (config.show_history && histories && Array.isArray(histories) && histories.length > 0) {
           historyTimelineEl.style.display = 'flex';
-          histories.slice(0, 3).forEach(hist => {
-            const row = document.createElement('div'); row.style.display = 'flex'; row.style.height = '6px'; row.style.marginTop = '2px'; row.style.borderRadius = '2px'; row.style.overflow = 'hidden';
+          const histData = Array.isArray(histories[0]) ? histories : [histories];
+          histData.slice(0, 3).forEach(hist => {
+            if (!Array.isArray(hist)) return;
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.height = '8px';
+            row.style.marginTop = '2px';
+            row.style.borderRadius = '2.5px';
+            row.style.overflow = 'hidden';
 
-            // FIX: Просто обрізаємо історію без зшивання, щоб не було зсувів
-            hist.slice(startOffsetIdx).forEach(s => {
-              const b = document.createElement('div'); b.style.flex = '1';
+            let historyToShow = hist;
+            if (isDynamic) {
+              const todayHistoryPart = hist.slice(startOffsetIdx);
+              const tomorrowSlotCount = schedule.length - todayHistoryPart.length;
+              historyToShow = [...todayHistoryPart, ...Array(tomorrowSlotCount).fill('unknown')];
+            }
+
+            historyToShow.forEach(s => {
+              const b = document.createElement('div');
+              b.style.flex = '1';
               if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
-              else if (s === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.05)';
+              else if (s === 'unknown') b.style.background = (config.color_unknown || '#444444');
               else b.style.background = 'rgba(27, 94, 32, 0.6)';
-              b.style.borderRight = '1px solid rgba(0,0,0,0.1)'; row.appendChild(b);
+              b.style.borderRight = '1px solid rgba(0,0,0,0.1)';
+              row.appendChild(b);
             });
 
-            // Добиваємо пустими блоками до кінця рядка (щоб закінчилось на 00:00)
-            const padCount = schedule.length - hist.slice(startOffsetIdx).length;
-            for (let k = 0; k < padCount; k++) { const b = document.createElement('div'); b.style.flex = '1'; row.appendChild(b); }
             historyTimelineEl.appendChild(row);
           });
         }
@@ -816,15 +1105,30 @@ class SvitloLiveCard extends HTMLElement {
       const totalSlots = effectiveSchedule.length;
       const occupiedPositions = [];
 
-      const addLabel = (text, pos, type = 'normal', priority = false, shift = null) => {
-        const threshold = 8.5;
-        const edgeThreshold = 14.5;
+      const addLabel = (text, pos, type = 'normal', priority = false) => {
+        const ZIGZAG_THRESHOLD = 8.0;
+        const SPREAD_THRESHOLD = 14.0;
+        const edgeThreshold = 17.0;
 
-        let conflictItem = null; let minDist = 999;
+        if (!priority) {
+          for (const item of occupiedPositions) {
+            if (item.priority) {
+              const dist = Math.abs(item.pos - pos);
+              const isPast = pos < item.pos;
+              if (dist < (isPast ? 25.0 : 4.0)) return null;
+            }
+          }
+        }
+
+        let conflictItem = null;
+        let minDist = 999;
 
         occupiedPositions.forEach(item => {
           const dist = Math.abs(item.pos - pos);
-          if (dist < threshold && dist < minDist) { minDist = dist; conflictItem = item; }
+          if (dist < SPREAD_THRESHOLD && dist < minDist) {
+            minDist = dist;
+            conflictItem = item;
+          }
         });
 
         if ((type === 'start' || type === 'end')) {
@@ -835,34 +1139,112 @@ class SvitloLiveCard extends HTMLElement {
           if (edgeConflict) return null;
         }
 
-        if (!priority && conflictItem && conflictItem.priority && minDist < 5.0) return null;
-        if (priority && conflictItem && !conflictItem.priority && minDist < 5.0) {
-          if (conflictItem.element) conflictItem.element.remove();
-          const idx = occupiedPositions.indexOf(conflictItem);
-          if (idx > -1) occupiedPositions.splice(idx, 1);
-          conflictItem = null;
+        if (priority) {
+          for (let i = occupiedPositions.length - 1; i >= 0; i--) {
+            const item = occupiedPositions[i];
+            if (!item.priority) {
+              const dist = Math.abs(item.pos - pos);
+              const isPastLabel = item.pos < pos;
+              const cleanThreshold = isPastLabel ? 18.0 : 5.0;
+
+              if (dist < cleanThreshold) {
+                if (item.element) item.element.remove();
+                occupiedPositions.splice(i, 1);
+              }
+            }
+          }
+        }
+        else {
+          if (conflictItem) {
+            if (conflictItem.priority) {
+              if (minDist < 3.0) return null;
+            } else {
+              if (minDist < 3.0) return null;
+            }
+          }
         }
 
         const span = document.createElement('span');
         span.innerText = text;
-        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;transform:translateX(-50%);`;
+        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;`;
 
-        if (type === 'start') { span.style.left = '0'; span.style.transform = 'none'; }
-        else if (type === 'end') { span.style.right = '0'; span.style.left = 'auto'; span.style.transform = 'none'; }
-        else { span.style.left = `${pos}%`; }
-
-        if (conflictItem && minDist < threshold) {
-          const isNeighborDown = conflictItem.element.style.top === '14px';
-          if (!isNeighborDown) {
-            span.style.top = '14px';
+        if (type === 'start') {
+          span.style.left = '0';
+          span.style.transform = 'none';
+        } else if (type === 'end') {
+          span.style.right = '0';
+          span.style.left = 'auto';
+          span.style.transform = 'none';
+        } else {
+          span.style.left = `${pos}%`;
+          if (pos < 5) {
+            span.style.transform = 'translateX(0)';
+          } else if (pos > 95) {
+            span.style.transform = 'translateX(-100%)';
+          } else {
+            span.style.transform = 'translateX(-50%)';
           }
-          span.style.transform = 'translateX(-50%)';
         }
 
-        if (priority) { span.style.color = '#fff'; span.style.fontWeight = 'bold'; span.style.zIndex = '15'; }
+        if (conflictItem && minDist < SPREAD_THRESHOLD && type !== 'start' && type !== 'end') {
+          const isNeighborDown = conflictItem.element.style.top === '14px';
+
+          if (minDist < ZIGZAG_THRESHOLD) {
+            if (!isNeighborDown && type !== 'start' && type !== 'end') {
+              span.style.top = '14px';
+            }
+          } else {
+            const factor = Math.max(0, Math.min(1, (minDist - ZIGZAG_THRESHOLD) / (SPREAD_THRESHOLD - ZIGZAG_THRESHOLD)));
+
+            if (conflictItem.pos < pos) {
+              let tx = 20 + (40 * factor);
+              if (pos > 90) tx = Math.min(tx, 50);
+              span.style.transform = `translateX(-${tx}%)`;
+
+              if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
+                const neighborTx = 80 - (40 * factor);
+                if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+              }
+            } else {
+              let tx = 80 - (40 * factor);
+              if (pos > 90) tx = Math.max(tx, 50);
+              span.style.transform = `translateX(-${tx}%)`;
+
+              if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
+                const neighborTx = 20 + (40 * factor);
+                if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+              }
+            }
+          }
+        }
+
+        if (priority) {
+          span.style.color = '#fff';
+          span.style.fontWeight = 'bold';
+          span.style.zIndex = '15';
+        }
+
+        if (type === 'normal') {
+          if (pos > 92) {
+            const currentTransform = span.style.transform;
+            if (currentTransform && currentTransform.includes('translateX')) {
+              const match = currentTransform.match(/translateX\(-?(\d+\.?\d*)%\)/);
+              if (match) {
+                const currentTx = parseFloat(match[1]);
+                const safeTx = Math.min(Math.max(currentTx, 50), 98);
+                span.style.transform = `translateX(-${safeTx}%)`;
+              }
+            } else {
+              span.style.transform = 'translateX(-70%)';
+            }
+          } else if (pos < 8) {
+            span.style.transform = 'translateX(0)';
+            span.style.left = `${Math.max(pos, 2)}%`;
+          }
+        }
 
         rulerEl.appendChild(span);
-        occupiedPositions.push({ pos: pos, element: span, priority: priority });
+        occupiedPositions.push({ pos: pos, element: span, priority: priority, type: type });
         return span;
       };
 
@@ -871,131 +1253,199 @@ class SvitloLiveCard extends HTMLElement {
         const tTotalMs = totalSlots * 1800000;
         const cutoffMs = rulerChangeTime ? rulerChangeTime.getTime() : new Date().getTime();
         this._actualOutages.forEach(ev => {
-          const s = new Date(ev.start.dateTime || ev.start.date); const e = new Date(ev.end.dateTime || ev.end.date);
-          if ((e - s) < 15 * 60000 || s.getTime() >= cutoffMs) return;
+          const s = new Date(ev.start.dateTime || ev.start.date);
+          const e = new Date(ev.end.dateTime || ev.end.date);
+          if (s.getTime() >= cutoffMs) return;
           if (s.getTime() > tStartMs) addLabel(formatTime(s), ((s.getTime() - tStartMs) / tTotalMs) * 100, 'normal', true);
           if (e.getTime() > tStartMs && e.getTime() < cutoffMs) addLabel(formatTime(e), ((e.getTime() - tStartMs) / tTotalMs) * 100, 'normal', true);
         });
       }
 
-      if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity) {
-        // User Request: If using Actual Calendar, do NOT show the label for "Power ON" on the timeline,
-        // because it's redundant (visible in header) and can be confusing if it was a short toggle.
-        // But DO show it if "Power OFF" (current outage start), as it's not in calendar yet.
-        const skipLabel = config.actual_outage_calendar_entity && !isOffCurrent;
-
-        if (!skipLabel) {
-          const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
-          if (p >= 0 && p <= 100) addLabel(formatTime(rulerChangeTime), p, 'normal', true);
-        }
+      if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity && (config.show_actual_history && showActualHistory)) {
+        const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
+        if (p >= 0 && p <= 100) addLabel(formatTime(rulerChangeTime), p, 'normal', true);
       }
 
       let lastLabelIndex = -100;
       let lastLabelElement = null;
 
+      const COLOR_ON = config.color_on || '#1b5e20';
+      const COLOR_OFF = config.color_off || '#7f0000';
+      const COLOR_UNKNOWN = config.color_unknown || '#444444';
+
       effectiveSchedule.forEach((state, i) => {
         const absIdx = startOffsetIdx + i;
-        const b = document.createElement('div'); b.className = 'timeline-block'; b.style.flex = '1'; b.style.height = '100%'; b.style.position = 'relative';
+        const isPast = absIdx < currentIdx;
+        const b = document.createElement('div');
+        b.className = 'timeline-block';
+        b.style.flex = '1';
+        b.style.height = '100%';
+        b.style.position = 'relative';
+        b.style.overflow = 'hidden';
 
-        let bg = '#1b5e20';
-        if (state === 'off') bg = '#7f0000';
-        else if (state === 'unknown') bg = 'rgba(255, 255, 255, 0.05)';
-        b.style.background = bg;
-        b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+        let bg = COLOR_ON;
+        if (state === 'off') bg = COLOR_OFF;
+        else if (state === 'unknown') bg = COLOR_UNKNOWN;
 
-        if (config.use_status_entity && !isUnknownCurrent) {
-          // Special handling for Current Slot to support "Split" visualization
-          // Left of Now = Actual, Right of Now = Plan
-          if (absIdx === currentIdx) {
-            const scheduleState = state; // Plan
+        const isHistoryMode = (config.show_actual_history) && isPast && isToday;
 
-            // Check if Deviation exists (Actual != Plan)
-            // But beware: Pre-change might have matched Plan, Post-change mismatch.
-            // Or Pre-change mismatch, Post-change match?
-            // "Last event 00:38 ON" (Green). Plan likely Red.
-            // So Post-Change (Green) != Plan (Red).
+        if (isHistoryMode) {
+          const slotStartMs = toLocalDisplay(absIdx).date.getTime();
+          const slotEndMs = slotStartMs + 1800000;
+          const slotDuration = 1800000;
 
-            if (currentSlotState !== scheduleState) {
-              const now = new Date();
-              const nowPercent = Math.min(100, Math.max(0, ((now.getMinutes() % 30) / 30) * 100 + ((now.getSeconds() / 60) / 30) * 100));
+          let totalOutageCoverage = 0;
+          let totalUnknownCoverage = 0;
+          const outageSegments = [];
+          const unknownSegments = [];
 
-              let changePercent = 0;
-              // Only respect changeTime if it is in THIS slot.
-              if (absIdx === changeSlotIdx && rulerChangeTime) {
-                const slotStartMs = toLocalDisplay(absIdx).date.getTime(); // Re-calculate or reuse? toLocalDisplay creates new Date.
-                // We can infer slot start from index logic if reliable, but toLocalDisplay is consistent.
-                // Wait, toLocalDisplay(absIdx) helper is available in scope? Yes.
-                const sTime = toLocalDisplay(absIdx).date.getTime();
-                changePercent = Math.min(100, Math.max(0, ((rulerChangeTime.getTime() - sTime) / 1800000) * 100));
+          if (this._actualOutages) {
+            this._actualOutages.forEach(ev => {
+              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+              const oS = Math.max(s, slotStartMs);
+              const oE = Math.min(e, slotEndMs);
+              if (oE > oS) {
+                totalOutageCoverage += (oE - oS);
+                outageSegments.push({ oS, oE });
               }
-
-              // Draw Overlay from Change -> End of Slot (Status Projection)
-              // User wants "Ahead is also Green" if currently Green.
-              // So we extend the Current Status to the end of the slot (100%), overriding the Plan.
-
-              const overlay = document.createElement('div');
-              overlay.style.position = 'absolute';
-              overlay.style.top = '0'; overlay.style.bottom = '0';
-              overlay.style.left = `${changePercent}%`;
-              overlay.style.width = `${100 - changePercent}%`; // Extend to End
-              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // Actual color
-              overlay.style.zIndex = '2';
-              b.appendChild(overlay);
-            }
+            });
           }
-          else if (config.use_status_entity && !isUnknownCurrent && absIdx === changeSlotIdx && rulerChangeTime && absIdx !== currentIdx) {
-            // Here we might have partial overlay too, but from ChangeTime to Right.
-            // Re-implement basic overlay logic for the "Start of Deviation" slot if strictly needed.
-            // existing logic handles this via 'effectiveSchedule' returning specific state?
-            // The 'effectiveSchedule' map says: if absIdx === changeSlotIdx return isOffCurrent ? 'on' : 'off'.
-            // This means the BASE BACKGROUND is the OLD state (before change).
-            // So we need to overlay the NEW state from ChangeTime -> Right.
-
-            // Calculate position inside this slot
-            const slotStartMs = toLocalDisplay(changeSlotIdx).date.getTime();
-            const msInside = rulerChangeTime.getTime() - slotStartMs;
-            const changePos = Math.max(0, Math.min(100, (msInside / 1800000) * 100));
-
-            const overlay = document.createElement('div');
-            overlay.style.position = 'absolute';
-            overlay.style.top = '0'; overlay.style.bottom = '0';
-            overlay.style.right = '0'; // Ensure it snaps to the end
-            overlay.style.left = `${changePos}%`;
-            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // New State
-            // overlay.style.width = `${100 - changePos}%`; // Removed to prevent sub-pixel gaps
-            overlay.style.zIndex = '2';
-
-            // FIX: Move border from block to overlay to prevent "Green Line" artifact
-            // The block background is Green. The overlay is Red.
-            // If border is on block, it composites over Green.
-            // We want it on the overlay (Red).
-            if (b.style.borderRight && b.style.borderRight !== 'none') {
-              overlay.style.borderRight = b.style.borderRight;
-              b.style.borderRight = 'none';
-            }
-
-            b.appendChild(overlay);
+          if (this._unknownIntervals) {
+            this._unknownIntervals.forEach(ev => {
+              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+              const oS = Math.max(s, slotStartMs);
+              const oE = Math.min(e, slotEndMs);
+              if (oE > oS) {
+                totalUnknownCoverage += (oE - oS);
+                unknownSegments.push({ oS, oE });
+              }
+            });
           }
+
+          const outagePct = totalOutageCoverage / slotDuration;
+          const unknownPct = totalUnknownCoverage / slotDuration;
+
+          if (outagePct >= 0.95) {
+            bg = COLOR_OFF;
+            b.style.background = bg;
+            b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+          } else if (unknownPct >= 0.95 && outagePct < 0.05) {
+            bg = COLOR_UNKNOWN;
+            b.style.background = bg;
+            b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+          } else {
+            bg = COLOR_ON;
+            b.style.background = bg;
+            b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+
+            unknownSegments.forEach(seg => {
+              const startP = Math.max(0, ((seg.oS - slotStartMs) / slotDuration) * 100);
+              const widthP = Math.min(100 - startP, ((seg.oE - seg.oS) / slotDuration) * 100);
+              const ov = document.createElement('div');
+              ov.style.position = 'absolute';
+              ov.style.top = '0';
+              ov.style.bottom = '0';
+              ov.style.left = `${startP}%`;
+              ov.style.width = `${widthP}%`;
+              ov.style.zIndex = '1';
+              ov.style.background = COLOR_UNKNOWN;
+
+              if (startP + widthP >= 99.9 && b.style.borderRight && b.style.borderRight !== 'none') {
+                ov.style.borderRight = b.style.borderRight;
+                b.style.borderRight = 'none';
+              }
+              b.appendChild(ov);
+            });
+
+            outageSegments.forEach(seg => {
+              const startP = Math.max(0, ((seg.oS - slotStartMs) / slotDuration) * 100);
+              const widthP = Math.min(100 - startP, ((seg.oE - seg.oS) / slotDuration) * 100);
+              const ov = document.createElement('div');
+              ov.style.position = 'absolute';
+              ov.style.top = '0';
+              ov.style.bottom = '0';
+              ov.style.left = `${startP}%`;
+              ov.style.width = `${widthP}%`;
+              ov.style.zIndex = '2';
+              ov.style.background = COLOR_OFF;
+
+              if (startP + widthP >= 99.9 && b.style.borderRight && b.style.borderRight !== 'none') {
+                ov.style.borderRight = b.style.borderRight;
+                b.style.borderRight = 'none';
+              }
+              b.appendChild(ov);
+            });
+          }
+        } else {
+          b.style.background = bg;
+          b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
         }
+
+        if (absIdx === currentIdx && isToday && config.show_actual_history && showActualHistory && !isUnknownCurrent) {
+          const now = new Date();
+          const slotStartMs = toLocalDisplay(absIdx).date.getTime();
+          const slotDuration = 1800000;
+
+          let overlayStart = 0;
+          let overlayWidth = ((now.getTime() - slotStartMs) / slotDuration) * 100;
+
+          if (rulerChangeTime) {
+            const changeMs = rulerChangeTime.getTime();
+            const slotEndMs = slotStartMs + slotDuration;
+
+            if (changeMs >= slotStartMs && changeMs <= slotEndMs) {
+              overlayStart = ((changeMs - slotStartMs) / slotDuration) * 100;
+              overlayWidth = ((now.getTime() - changeMs) / slotDuration) * 100;
+            }
+          }
+
+          const overlay = document.createElement('div');
+          overlay.style.position = 'absolute';
+          overlay.style.top = '0';
+          overlay.style.bottom = '0';
+          overlay.style.left = `${overlayStart}%`;
+          overlay.style.width = `${overlayWidth}%`;
+          overlay.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
+          overlay.style.zIndex = '2';
+          b.appendChild(overlay);
+        }
+
         timelineEl.appendChild(b);
 
         const slotInfo = toLocalDisplay(absIdx);
         if (i > 0 && slotInfo.date.getHours() === 0 && slotInfo.date.getMinutes() === 0) {
-          const m = document.createElement('div'); m.className = 'midnight-marker';
-          m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:20;pointer-events:none;transform:translateX(-50%);`; timelineEl.appendChild(m);
+          const m = document.createElement('div');
+          m.className = 'midnight-marker';
+          m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:2;pointer-events:none;transform:translateX(-50%);`;
+          timelineEl.appendChild(m);
         }
 
-        if (i > 0 && effectiveSchedule[i] !== effectiveSchedule[i - 1]) {
-          // Allow labels for past slots even if show_actual_history is on.
-          // if (config.show_actual_history && absIdx < currentIdx) return; 
+        if (i > 0) {
+          const isPlanChange = schedule[i] !== schedule[i - 1];
+          const isEffChange = effectiveSchedule[i] !== effectiveSchedule[i - 1];
+          const currPlan = schedule[i];
+          const currEff = effectiveSchedule[i];
 
-          const pos = (i / totalSlots) * 100;
-          let currentShift = null;
-          const newLabel = addLabel(slotInfo.time, pos, 'normal', false, currentShift);
-          if (newLabel) { lastLabelIndex = i; lastLabelElement = newLabel; }
+          const isActualChangeHere = (rulerChangeTime && changeSlotIdx === absIdx && config.use_status_entity);
+
+          const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
+
+          if (showPlanLabel) {
+            if (config.show_actual_history && absIdx <= currentIdx && currEff === currPlan) return;
+
+            const pos = (i / totalSlots) * 100;
+            const newLabel = addLabel(slotInfo.time, pos, 'normal', false);
+            if (newLabel) {
+              lastLabelIndex = i;
+              lastLabelElement = newLabel;
+            }
+          }
         }
       });
-      addLabel(toLocalDisplay(startOffsetIdx).time, 0, 'start', true);
+
+      addLabel(toLocalDisplay(startOffsetIdx).time, 0, 'start', false);
       addLabel(toLocalDisplay(startOffsetIdx + totalSlots).time, 100, 'end', false);
     }
 
@@ -1003,9 +1453,9 @@ class SvitloLiveCard extends HTMLElement {
       const now = new Date();
       if (isDynamic) {
         const pos = (((currentIdx - startOffsetIdx) + (now.getMinutes() % 30) / 30) / schedule.length) * 100;
-        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:10;box-shadow:0 0 12px #fff;`;
+        nowMarker.style.cssText = `display:block;left:${pos}%;width:3px;position:absolute;top:0;bottom:0;background:linear-gradient(#fff,rgba(255,255,255,0.8));z-index:2;box-shadow:0 0 12px #fff;`;
       } else if (isToday) {
-        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:10;box-shadow:0 0 8px #fff;`;
+        nowMarker.style.cssText = `display:block;left:${((now.getHours() * 60 + now.getMinutes()) / 1440) * 100}%;width:2px;position:absolute;top:0;bottom:0;background:#fff;z-index:2;box-shadow:0 0 8px #fff;`;
       } else nowMarker.style.display = 'none';
     }
 
@@ -1014,22 +1464,19 @@ class SvitloLiveCard extends HTMLElement {
         let startIndex = isToday ? Math.floor((new Date().getHours() * 60 + new Date().getMinutes()) / 30) + 1 : 0;
         if (isDynamic) startIndex = (currentIdx - startOffsetIdx) + 1;
 
-        // Use 'schedule' (Plan) instead of 'effectiveSchedule' (View) for predictions
-        // taking into account startOffsetIdx
-        // schedule[] is already sliced/prepared? 
-        // In this scope, 'schedule' is the array used to build the view. 
-        // effectiveSchedule was schedule.map(...). 
-        // So 'schedule' holds the raw plan data (Green/Red/Grey).
-
         const currentState = schedule[startIndex - 1] || schedule[0];
         const targetState = (currentState === 'off') ? 'on' : 'off';
         let found = -1;
         for (let i = startIndex; i < schedule.length; i++) {
-          if (schedule[i] === targetState) { found = i; break; }
+          if (schedule[i] === targetState) {
+            found = i;
+            break;
+          }
         }
 
         if (found !== -1) {
-          const local = toLocalDisplay(startOffsetIdx + found); let val = local.time;
+          const local = toLocalDisplay(startOffsetIdx + found);
+          let val = local.time;
           if (local.date.getDate() !== new Date().getDate()) val += ` ${local.date.getDate().toString().padStart(2, '0')}.${(local.date.getMonth() + 1).toString().padStart(2, '0')}`;
           return { label: targetState === 'on' ? 'Світло буде о:' : 'Вимкнуть о:', value: val, rawDate: local.date };
         }
@@ -1037,23 +1484,45 @@ class SvitloLiveCard extends HTMLElement {
       };
 
       const getCountdownInfo = () => {
-        const next = getNextChangeInfo(); if (!next.rawDate) return { label: 'До зміни:', value: '--:--' };
-        const diffMs = next.rawDate - new Date(); if (diffMs < 0) return { label: next.label.replace(' о:', ''), value: '--:--' };
-        const h = Math.floor(diffMs / 3600000); const m = Math.floor((diffMs % 3600000) / 60000);
+        const next = getNextChangeInfo();
+        if (!next.rawDate) return { label: 'До зміни:', value: '--:--' };
+        const diffMs = next.rawDate - new Date();
+        if (diffMs < 0) return { label: next.label.replace(' о:', ''), value: '--:--' };
+        const h = Math.floor(diffMs / 3600000);
+        const m = Math.floor((diffMs % 3600000) / 60000);
         return { label: next.label.includes('буде') ? 'До включення:' : 'До вимкнення:', value: h > 0 ? `${h}г ${m}хв` : `${m} хв` };
       };
 
       const renderStat = (type, lEl, vEl) => {
         if (!lEl || !vEl) return;
         if (type === 'hours_without_light') {
-          let offMins = 0; schedule.forEach(s => { if (s === 'off') offMins += 30; });
+          let offMins = 0;
+
+          if (config.show_actual_history && showActualHistory && isToday) {
+            effectiveSchedule.forEach((s, i) => {
+              const absIdx = startOffsetIdx + i;
+              const isPast = absIdx < currentIdx;
+              const stateToCount = isPast ? s : schedule[i];
+              if (stateToCount === 'off') offMins += 30;
+            });
+          } else {
+            schedule.forEach(s => { if (s === 'off') offMins += 30; });
+          }
+
           lEl.innerText = isDynamic ? "У найближчі 24г без світла" : "Всього за добу без світла";
           vEl.innerText = `${parseFloat((offMins / 60).toFixed(1))} год (${Math.round((offMins / (schedule.length * 30)) * 100)}%)`;
-        } else if (type === 'next_change') { const i = getNextChangeInfo(); lEl.innerText = i.label; vEl.innerText = i.value; }
-        else if (type === 'countdown') { const i = getCountdownInfo(); lEl.innerText = i.label; vEl.innerText = i.value; }
-        else if (type === 'schedule_updated' && config.schedule_entity && hass.states[config.schedule_entity]) {
+        } else if (type === 'next_change') {
+          const i = getNextChangeInfo();
+          lEl.innerText = i.label;
+          vEl.innerText = i.value;
+        } else if (type === 'countdown') {
+          const i = getCountdownInfo();
+          lEl.innerText = i.label;
+          vEl.innerText = i.value;
+        } else if (type === 'schedule_updated' && config.schedule_entity && hass.states[config.schedule_entity]) {
           const d = new Date(hass.states[config.schedule_entity].last_changed);
-          lEl.innerText = 'Графік оновлено о:'; vEl.innerText = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}${d.getDate() !== new Date().getDate() ? ' ' + d.getDate() + '.' + (d.getMonth() + 1) : ''}`;
+          lEl.innerText = 'Графік оновлено о:';
+          vEl.innerText = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}${d.getDate() !== new Date().getDate() ? ' ' + d.getDate() + '.' + (d.getMonth() + 1) : ''}`;
         }
       };
       renderStat(config.left_stat_type || 'hours_without_light', this.querySelector('#left-stat-label'), this.querySelector('#left-stat-value'));
@@ -1061,8 +1530,14 @@ class SvitloLiveCard extends HTMLElement {
     }
   }
 
-  setConfig(config) { this.config = config; }
-  static getConfigElement() { return document.createElement("svitlo-live-card-editor"); }
+  setConfig(config) {
+    this.config = config;
+  }
+
+  static getConfigElement() {
+    return document.createElement("svitlo-live-card-editor");
+  }
+
   static getStubConfig(hass, entities, entityIds) {
     const e = entityIds.find(id => hass.states[id]?.attributes?.today_48half);
     return { entity: e || '', title: '' };
@@ -1070,8 +1545,3 @@ class SvitloLiveCard extends HTMLElement {
 }
 
 customElements.define('svitlo-live-card', SvitloLiveCard);
-
-window.customCards = window.customCards || [];
-if (!window.customCards.some(c => c.type === "svitlo-live-card")) {
-  window.customCards.push({ type: "svitlo-live-card", name: "Svitlo Live Card", preview: true, description: "Professional Svitlo.live dashboard" });
-}

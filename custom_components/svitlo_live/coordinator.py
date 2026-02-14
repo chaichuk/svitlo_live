@@ -78,7 +78,11 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.api_region_key = target_id
         else:
             # Fallback for completely unknown regions
-            _LOGGER.warning("Region %s not found in dynamic catalog", self.region)
+            _LOGGER.warning(
+                "Region %s not found in dynamic catalog. Available regions: %s", 
+                self.region,
+                [r["id"] for r in catalog]
+            )
             self.is_new_api = (self.region in NEW_API_REGIONS or mapped_id in NEW_API_REGIONS)
             self.api_region_key = mapped_id if mapped_id and self.is_new_api else self.region
 
@@ -119,12 +123,15 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.data and self.data.get("date") and date_today:
             previous_date = self.data["date"]
             if previous_date != date_today:
-                _LOGGER.debug("Day rollover detected: %s -> %s. Shifting history.", previous_date, date_today)
-                # User Request:
-                # 1. Clear today's history (by overwriting it)
-                # 2. Move tomorrow's history to today
-                self._history_today = self._history_tomorrow
+                _LOGGER.debug("Day rollover detected: %s -> %s. Clearing history.", previous_date, date_today)
+                # User Request (Fix):
+                # Clear history completely on day switch.
+                self._history_today = []
                 self._history_tomorrow = []
+                # We also need to ensure we don't push "yesterday's" schedule into today's history in the block below.
+                # So we return early or handle it by not matching dates. 
+                # Ideally we can use a flag, but since we are inside a method, let's just note it.
+                # Actually, we can rely on verifying 'previous_date == date_today' before updating history.
 
         is_emergency = region_obj.get("emergency", False)
         schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
@@ -168,6 +175,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         today_half = build_half_list(slots_today_map)
         tomorrow_half = build_half_list(slots_tomorrow_map) if slots_tomorrow_map else []
+        # If all slots are "unknown", there's no real schedule → treat as empty
+        if tomorrow_half and all(s == "unknown" for s in tomorrow_half):
+            tomorrow_half = []
 
         # --- Statistics calculation ---
         today_outage_hours = today_half.count("off") * 0.5
@@ -244,7 +254,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
         # Update "history" (store up to 3 previous versions)
-        if self.data:
+        # Only update history if the date hasn't changed (avoid pushing yesterday's data into today's history)
+        if self.data and self.data.get("date") == date_today:
             old_today = self.data.get("today_48half", [])
             if today_half and old_today and today_half != old_today:
                 if not self._history_today or old_today != self._history_today[0]:
