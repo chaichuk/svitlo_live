@@ -112,13 +112,22 @@ class SvitloLiveCardEditor extends HTMLElement {
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">⚡ Сенсори напруги (замість "Є світло"):</label>
           <div style="font-size: 12px; opacity: 0.7; margin: 2px 0 8px 0;">Оберіть сенсор(и) напруги для 1 або 3 фаз. Якщо не обрано — відображатиметься стандартний статус "Є світло".</div>
 
-          <label style="font-weight: 500; font-size: 13px; margin-top: 4px; display: block;">Фаза 1 (або 1-фазна мережа):</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px;">
+            <label style="font-weight: 500; font-size: 13px;">Фаза 1:</label>
+            <button type="button" id="clear-voltage1" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="voltage1-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <label style="font-weight: 500; font-size: 13px; margin-top: 6px; display: block;">Фаза 2 (необов'язково для 3 фаз):</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px;">
+            <label style="font-weight: 500; font-size: 13px;">Фаза 2:</label>
+            <button type="button" id="clear-voltage2" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="voltage2-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <label style="font-weight: 500; font-size: 13px; margin-top: 6px; display: block;">Фаза 3 (необов'язково для 3 фаз):</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px;">
+            <label style="font-weight: 500; font-size: 13px;">Фаза 3:</label>
+            <button type="button" id="clear-voltage3" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="voltage3-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
@@ -356,6 +365,27 @@ class SvitloLiveCardEditor extends HTMLElement {
         this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
       });
     }
+
+    const setupClear = (btnId, selectorProp, configKeys) => {
+      const btn = this.querySelector(btnId);
+      if (btn) {
+        btn.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          if (this[selectorProp]) {
+            this[selectorProp].value = '';
+          }
+          const newConfig = { ...this._config };
+          configKeys.forEach(k => delete newConfig[k]);
+          this._config = newConfig;
+          this._updateProperties();
+          this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
+        });
+      }
+    };
+
+    setupClear('#clear-voltage1', '_voltage1Selector', ['voltage_entity', 'phase1_entity', 'voltage_entity_l1']);
+    setupClear('#clear-voltage2', '_voltage2Selector', ['phase2_entity', 'voltage_entity_l2']);
+    setupClear('#clear-voltage3', '_voltage3Selector', ['phase3_entity', 'voltage_entity_l3']);
   }
 
   _updateProperties() {
@@ -423,18 +453,29 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector.value = this._config.schedule_entity || '';
     }
 
+    const v1Val = this._config.voltage_entity || this._config.phase1_entity || '';
     if (this._voltage1Selector) {
       this._voltage1Selector.hass = this._hass;
-      this._voltage1Selector.value = this._config.voltage_entity || this._config.phase1_entity || '';
+      this._voltage1Selector.value = v1Val;
     }
+    const clear1 = this.querySelector("#clear-voltage1");
+    if (clear1) clear1.style.display = v1Val ? 'inline-block' : 'none';
+
+    const v2Val = this._config.phase2_entity || this._config.voltage_entity_l2 || '';
     if (this._voltage2Selector) {
       this._voltage2Selector.hass = this._hass;
-      this._voltage2Selector.value = this._config.phase2_entity || this._config.voltage_entity_l2 || '';
+      this._voltage2Selector.value = v2Val;
     }
+    const clear2 = this.querySelector("#clear-voltage2");
+    if (clear2) clear2.style.display = v2Val ? 'inline-block' : 'none';
+
+    const v3Val = this._config.phase3_entity || this._config.voltage_entity_l3 || '';
     if (this._voltage3Selector) {
       this._voltage3Selector.hass = this._hass;
-      this._voltage3Selector.value = this._config.phase3_entity || this._config.voltage_entity_l3 || '';
+      this._voltage3Selector.value = v3Val;
     }
+    const clear3 = this.querySelector("#clear-voltage3");
+    if (clear3) clear3.style.display = v3Val ? 'inline-block' : 'none';
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
@@ -450,7 +491,14 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (!this._config || !this._hass) return;
     const target = ev.target;
     if (this._config[target.configValue] === target.value) return;
-    const newConfig = { ...this._config, [target.configValue]: target.value };
+    const newConfig = { ...this._config };
+    if (target.value === undefined || target.value === null || target.value === '') {
+      delete newConfig[target.configValue];
+    } else {
+      newConfig[target.configValue] = target.value;
+    }
+    this._config = newConfig;
+    this._updateProperties();
     this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
   }
 }
