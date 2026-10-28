@@ -2,6 +2,9 @@
 class SvitloLiveCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = config;
+    if (this._initialized) {
+      this._updateProperties();
+    }
   }
 
   set hass(hass) {
@@ -1896,6 +1899,9 @@ class SvitloLiveCard extends HTMLElement {
 
   setConfig(config) {
     this.config = config;
+    if (this._hass && this.content) {
+      this._renderWithCurrentDay(this._hass);
+    }
   }
 
   static getConfigElement() {
