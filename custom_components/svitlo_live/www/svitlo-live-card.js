@@ -106,6 +106,18 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="actual-history-switch"></ha-switch>
           </ha-formfield>
 
+          <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">⚡ Сенсори напруги (замість "Є світло"):</label>
+          <div style="font-size: 12px; opacity: 0.7; margin: 2px 0 8px 0;">Оберіть сенсор(и) напруги для 1 або 3 фаз. Якщо не обрано — відображатиметься стандартний статус "Є світло".</div>
+
+          <label style="font-weight: 500; font-size: 13px; margin-top: 4px; display: block;">Фаза 1 (або 1-фазна мережа):</label>
+          <div id="voltage1-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <label style="font-weight: 500; font-size: 13px; margin-top: 6px; display: block;">Фаза 2 (необов'язково для 3 фаз):</label>
+          <div id="voltage2-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <label style="font-weight: 500; font-size: 13px; margin-top: 6px; display: block;">Фаза 3 (необов'язково для 3 фаз):</label>
+          <div id="voltage3-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
           <ha-formfield label="Показувати тінь картки" style="display: flex; align-items: center; margin-top: 4px;">
             <ha-switch id="shadow-switch"></ha-switch>
@@ -209,6 +221,45 @@ class SvitloLiveCardEditor extends HTMLElement {
       scheduleContainer.innerHTML = "";
       scheduleContainer.appendChild(selector);
       this._scheduleSelector = selector;
+    }
+
+    const v1Container = this.querySelector("#voltage1-picker-container");
+    if (v1Container) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['sensor', 'input_number'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'voltage_entity', value: ev.detail.value } });
+      });
+      v1Container.innerHTML = "";
+      v1Container.appendChild(selector);
+      this._voltage1Selector = selector;
+    }
+
+    const v2Container = this.querySelector("#voltage2-picker-container");
+    if (v2Container) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['sensor', 'input_number'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'phase2_entity', value: ev.detail.value } });
+      });
+      v2Container.innerHTML = "";
+      v2Container.appendChild(selector);
+      this._voltage2Selector = selector;
+    }
+
+    const v3Container = this.querySelector("#voltage3-picker-container");
+    if (v3Container) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['sensor', 'input_number'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'phase3_entity', value: ev.detail.value } });
+      });
+      v3Container.innerHTML = "";
+      v3Container.appendChild(selector);
+      this._voltage3Selector = selector;
     }
   }
 
@@ -367,6 +418,19 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (this._scheduleSelector) {
       this._scheduleSelector.hass = this._hass;
       this._scheduleSelector.value = this._config.schedule_entity || '';
+    }
+
+    if (this._voltage1Selector) {
+      this._voltage1Selector.hass = this._hass;
+      this._voltage1Selector.value = this._config.voltage_entity || this._config.phase1_entity || '';
+    }
+    if (this._voltage2Selector) {
+      this._voltage2Selector.hass = this._hass;
+      this._voltage2Selector.value = this._config.phase2_entity || this._config.voltage_entity_l2 || '';
+    }
+    if (this._voltage3Selector) {
+      this._voltage3Selector.hass = this._hass;
+      this._voltage3Selector.value = this._config.phase3_entity || this._config.voltage_entity_l3 || '';
     }
 
     const ahs = this.querySelector("#actual-history-switch");
@@ -856,17 +920,165 @@ class SvitloLiveCard extends HTMLElement {
 
     let currentSlotState = isUnknownCurrent ? 'unknown' : (isOffCurrent ? 'off' : 'on');
 
+    // Обробка сенсорів напруги (Фаза 1, 2, 3)
+    const v1Entity = config.voltage_entity || config.phase1_entity || config.voltage_entity_l1;
+    const v2Entity = config.phase2_entity || config.voltage_entity_l2;
+    const v3Entity = config.phase3_entity || config.voltage_entity_l3;
+
+    const configuredPhases = [];
+    if (v1Entity) configuredPhases.push({ id: v1Entity, label: 'L1', name: 'Фаза 1' });
+    if (v2Entity) configuredPhases.push({ id: v2Entity, label: 'L2', name: 'Фаза 2' });
+    if (v3Entity) configuredPhases.push({ id: v3Entity, label: 'L3', name: 'Фаза 3' });
+
+    let phaseData = [];
+    if (configuredPhases.length > 0) {
+      phaseData = configuredPhases.map(p => {
+        const stateObj = hass.states[p.id];
+        if (!stateObj) {
+          return { ...p, value: null, text: '—', valRound: '—', isOff: true, raw: null };
+        }
+        const raw = stateObj.state;
+        if (this._isStateUnknown(raw)) {
+          return { ...p, value: null, text: '—', valRound: '—', isOff: true, raw };
+        }
+        const num = parseFloat(raw);
+        const unit = stateObj.attributes?.unit_of_measurement || 'В';
+        if (isNaN(num)) {
+          const isOff = this._isStateOff(raw);
+          return { ...p, value: null, text: String(raw), valRound: String(raw), unit, isOff, raw };
+        }
+        const isOff = num < 40 || this._isStateOff(raw);
+        const valRound = Math.round(num);
+        return {
+          ...p,
+          value: num,
+          valRound: valRound,
+          text: `${valRound} ${unit}`,
+          unit,
+          isOff,
+          raw,
+        };
+      });
+    }
+
     if (statusEl) {
+      const COLOR_ON = config.color_on || '#1b5e20';
+      const COLOR_OFF = config.color_off || '#7f0000';
+
+      const openMoreInfo = (eid) => {
+        if (!eid) return;
+        this.dispatchEvent(new CustomEvent('hass-more-info', {
+          detail: { entityId: eid },
+          bubbles: true,
+          composed: true,
+        }));
+      };
+
       if (isUnknownCurrent) {
+        statusEl.innerHTML = '';
         statusEl.innerText = 'НЕВІДОМО';
         statusEl.style.background = '#333';
         statusEl.style.color = '#aaa';
-      } else {
-        const COLOR_ON = config.color_on || '#1b5e20';
-        const COLOR_OFF = config.color_off || '#7f0000';
-        statusEl.innerText = isToday || isDynamic ? (isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО') : 'ГРАФІК НА ЗАВТРА';
-        statusEl.style.background = isToday || isDynamic ? (isOffCurrent ? COLOR_OFF : COLOR_ON) : '#333';
+        statusEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)';
+        statusEl.style.padding = '4px 14px';
+        statusEl.style.cursor = 'default';
+        statusEl.onclick = null;
+      } else if (!isToday && !isDynamic) {
+        statusEl.innerHTML = '';
+        statusEl.innerText = 'ГРАФІК НА ЗАВТРА';
+        statusEl.style.background = '#333';
         statusEl.style.color = '#fff';
+        statusEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)';
+        statusEl.style.padding = '4px 14px';
+        statusEl.style.cursor = 'default';
+        statusEl.onclick = null;
+      } else if (phaseData.length === 0) {
+        // Стандартний режим (якщо сенсори напруги не налаштовано)
+        statusEl.innerHTML = '';
+        statusEl.innerText = isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО';
+        statusEl.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
+        statusEl.style.color = '#fff';
+        statusEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)';
+        statusEl.style.padding = '4px 14px';
+        statusEl.style.cursor = 'default';
+        statusEl.onclick = null;
+      } else if (phaseData.length === 1) {
+        // Однофазний режим з напругою замість "Є СВІТЛО"
+        const p1 = phaseData[0];
+        statusEl.innerHTML = '';
+        statusEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)';
+        statusEl.style.padding = '4px 14px';
+        statusEl.style.color = '#fff';
+        statusEl.style.cursor = 'pointer';
+        statusEl.onclick = () => openMoreInfo(p1.id);
+
+        if (isOffCurrent && p1.isOff) {
+          statusEl.innerText = 'НЕМАЄ СВІТЛА';
+          statusEl.style.background = COLOR_OFF;
+        } else if (p1.isOff) {
+          statusEl.innerText = `${p1.text}`;
+          statusEl.style.background = COLOR_OFF;
+        } else {
+          statusEl.innerText = `⚡ ${p1.text}`;
+          statusEl.style.background = COLOR_ON;
+        }
+      } else {
+        // Багатофазний режим (2 або 3 фази)
+        const allOff = isOffCurrent && phaseData.every(p => p.isOff);
+        if (allOff) {
+          statusEl.innerHTML = '';
+          statusEl.innerText = 'НЕМАЄ СВІТЛА';
+          statusEl.style.background = COLOR_OFF;
+          statusEl.style.color = '#fff';
+          statusEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)';
+          statusEl.style.padding = '4px 14px';
+          statusEl.style.cursor = 'default';
+          statusEl.onclick = null;
+        } else {
+          statusEl.style.background = 'transparent';
+          statusEl.style.boxShadow = 'none';
+          statusEl.style.padding = '0';
+          statusEl.style.cursor = 'default';
+          statusEl.onclick = null;
+          statusEl.innerHTML = `
+            <div style="display: flex; gap: 4px; align-items: center; justify-content: flex-end;">
+              ${phaseData.map(p => {
+                const isPhaseOff = (isOffCurrent && p.isOff) || p.isOff;
+                const bg = isPhaseOff ? COLOR_OFF : COLOR_ON;
+                const valDisplay = p.valRound !== undefined && p.valRound !== '—' ? `${p.valRound}В` : p.text;
+                return `
+                  <div class="phase-pill" data-entity-id="${p.id}" title="${p.name}: ${p.text}" style="
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 3px;
+                    font-size: 11px;
+                    padding: 4px 7px;
+                    border-radius: 7px;
+                    font-weight: 700;
+                    white-space: nowrap;
+                    background: ${bg};
+                    color: #fff;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+                    letter-spacing: 0.2px;
+                    cursor: pointer;
+                  ">
+                    <span style="opacity: 0.75; font-size: 9px; font-weight: 600;">${p.label}</span>
+                    <span>${valDisplay}</span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+
+          // Додаємо кліки на фази для відкриття more-info
+          const pills = statusEl.querySelectorAll('.phase-pill');
+          pills.forEach(pill => {
+            pill.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              openMoreInfo(pill.dataset.entityId);
+            });
+          });
+        }
       }
     }
 
