@@ -90,6 +90,7 @@ class SvitloStatusSensor(SvitloBaseEntity):
         return {
             "region": getattr(self.coordinator, "region", ""),
             "queue": getattr(self.coordinator, "queue", ""),
+            "source": data.get("source"),
             "now_status": data.get("now_status"),
             "today_48half": data.get("today_48half", []),
             "tomorrow_48half": data.get("tomorrow_48half", []),

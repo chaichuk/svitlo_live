@@ -20,7 +20,9 @@ from .const import (
     CONF_QUEUE,
     DEFAULT_SCAN_INTERVAL,
     API_REGION_MAP,
-    NEW_API_REGIONS,  # <--- Імпортуємо множину нових регіонів
+    REVERSE_API_REGION_MAP,
+    DNIPRO_REGIONS,
+    NEW_API_REGIONS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ MIDNIGHT_BLOCK_MINUTES = 20
 
 
 class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Тягне JSON з API і будує дані для конкретного region/queue."""
+    """Тягне JSON з API і будує дані для конкретного region/queue з підтримкою fallback."""
 
     def __init__(self, hass: HomeAssistant, config: dict[str, Any], hub: Any) -> None:
         self.hass = hass
@@ -39,15 +41,13 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.region: str = config[CONF_REGION] 
         self.queue: str = config[CONF_QUEUE]
 
-        # We need to know if this region is from New API or Old API.
-        # For legacy entries, we'll try to find it in the current catalog.
         self.is_new_api = False
         self.api_region_key = self.region
+        self.source_url = OLD_API_URL
         self._history_today: list[list[str]] = []
         self._history_tomorrow: list[list[str]] = []
 
         scan_seconds = int(config.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL))
-
 
         self._unsub_precise: Optional[Callable[[], None]] = None
 
@@ -58,90 +58,194 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=scan_seconds),
         )
 
+    def _get_candidate_keys(self, region: str, is_new: bool) -> list[str]:
+        """Отримує список можливих ключів регіону для заданого API."""
+        candidates: list[str] = []
+        if is_new:
+            if region in API_REGION_MAP:
+                candidates.append(API_REGION_MAP[region])
+            candidates.append(region)
+        else:
+            if region in REVERSE_API_REGION_MAP:
+                candidates.append(REVERSE_API_REGION_MAP[region])
+            if region in DNIPRO_REGIONS:
+                candidates.append("dnipropetrovska-oblast")
+            candidates.append(region)
+            if region in API_REGION_MAP:
+                candidates.append(API_REGION_MAP[region])
+        seen: set[str] = set()
+        return [x for x in candidates if not (x in seen or seen.add(x))]
+
+    def _find_region_and_schedule(
+        self, api_data: Optional[dict[str, Any]], candidate_keys: list[str]
+    ) -> tuple[Optional[dict[str, Any]], Optional[str], Optional[dict[str, Any]]]:
+        """Знаходить об'єкт регіону, його ключ та розклад для черги."""
+        if not api_data:
+            return None, None, None
+        for r in api_data.get("regions", []):
+            cpu = r.get("cpu")
+            if cpu in candidate_keys:
+                sched = (r.get("schedule") or {}).get(self.queue) or {}
+                return r, cpu, sched
+        return None, None, None
+
+    def _score_schedule(self, schedule: Optional[dict[str, Any]], date_iso: str) -> int:
+        """
+        Оцінює якість розкладу на дату:
+        2 - є слоти 1 або 2 (світло є / немає)
+        1 - є ключ дати (наприклад, 0 - без обмежень)
+        0 - відсутні дані на дату
+        """
+        if not schedule or date_iso not in schedule:
+            return 0
+        slots = schedule[date_iso]
+        if isinstance(slots, dict) and any(v in (1, 2) for v in slots.values()):
+            return 2
+        return 1
+
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch and parse data from the appropriate API."""
-        # 1) Get regions to find out which API to use and what the actual key is
+        """Fetch and parse data with automatic fallback between New and Old APIs."""
+        # 1) Отримуємо каталог регіонів для визначення пріоритетного API
         catalog = await self.hub.get_regions_catalog()
-        
-        # Try finding by exact match or mapped match
+
         target_id = self.region
         mapped_id = API_REGION_MAP.get(self.region)
-        
+
         region_info = next((r for r in catalog if r["id"] == target_id), None)
         if not region_info and mapped_id:
             region_info = next((r for r in catalog if r["id"] == mapped_id), None)
             if region_info:
                 target_id = mapped_id
-        
+
         if region_info:
-            self.is_new_api = region_info["is_new_api"]
-            self.api_region_key = target_id
+            primary_is_new = region_info["is_new_api"]
+            primary_key = target_id
         else:
-            # Fallback for completely unknown regions
+            primary_is_new = (self.region in NEW_API_REGIONS or mapped_id in NEW_API_REGIONS)
+            primary_key = mapped_id if mapped_id and primary_is_new else self.region
+
+        today_iso = dt_util.now(TZ_KYIV).date().isoformat()
+        tomorrow_iso = (dt_util.now(TZ_KYIV).date() + timedelta(days=1)).isoformat()
+
+        # 2) Завантажуємо первинне джерело
+        primary_json = await self.hub.ensure_data(is_new=primary_is_new)
+        prim_candidates = self._get_candidate_keys(primary_key, is_new=primary_is_new)
+        prim_reg, prim_key, prim_sched = self._find_region_and_schedule(primary_json, prim_candidates)
+        prim_score = self._score_schedule(prim_sched, today_iso)
+
+        # 3) Перевіряємо альтернативне джерело (fallback), якщо в первинному немає повних даних
+        fallback_is_new = not primary_is_new
+        fallback_json = None
+        fall_reg, fall_key, fall_sched = None, None, None
+        fall_score = 0
+
+        if prim_score < 2 or not prim_reg:
+            fallback_json = await self.hub.ensure_data(is_new=fallback_is_new)
+            fall_candidates = self._get_candidate_keys(primary_key, is_new=fallback_is_new)
+            fall_reg, fall_key, fall_sched = self._find_region_and_schedule(fallback_json, fall_candidates)
+            fall_score = self._score_schedule(fall_sched, today_iso)
+
+        if fall_score > prim_score:
             _LOGGER.warning(
-                "Region %s not found in dynamic catalog. Available regions: %s", 
+                "Using fallback API (%s) for %s/%s (primary score=%d vs fallback score=%d)",
+                OLD_API_URL if not fallback_is_new else DTEK_API_URL,
                 self.region,
-                [r["id"] for r in catalog]
+                self.queue,
+                prim_score,
+                fall_score,
             )
-            self.is_new_api = (self.region in NEW_API_REGIONS or mapped_id in NEW_API_REGIONS)
-            self.api_region_key = mapped_id if mapped_id and self.is_new_api else self.region
+            used_is_new = fallback_is_new
+            used_reg = fall_reg
+            used_key = fall_key
+            used_sched = fall_sched
+            used_json = fallback_json
+            other_sched = prim_sched
+            other_is_new = primary_is_new
+        else:
+            used_is_new = primary_is_new
+            used_reg = prim_reg
+            used_key = prim_key
+            used_sched = prim_sched
+            used_json = primary_json
+            other_sched = fall_sched
+            other_is_new = fallback_is_new
 
-        # 2) Fetch fresh JSON from appropriate API
-        last_json = await self.hub.ensure_data(is_new=self.is_new_api)
-        if not last_json:
-            raise UpdateFailed(f"No data available for {'New' if self.is_new_api else 'Old'} API")
+        if not used_reg:
+            if fallback_json is None:
+                fallback_json = await self.hub.ensure_data(is_new=fallback_is_new)
+                fall_candidates = self._get_candidate_keys(primary_key, is_new=fallback_is_new)
+                fall_reg, fall_key, fall_sched = self._find_region_and_schedule(fallback_json, fall_candidates)
+                if fall_reg:
+                    used_is_new = fallback_is_new
+                    used_reg = fall_reg
+                    used_key = fall_key
+                    used_sched = fall_sched
+                    used_json = fallback_json
 
-        # 2) Parse
+        if not used_reg:
+            raise UpdateFailed(f"Region '{self.region}' not found in API response")
+
+        self.is_new_api = used_is_new
+        self.api_region_key = used_key or self.region
+        self.source_url = DTEK_API_URL if used_is_new else OLD_API_URL
+
+        # Визначаємо слоти на сьогодні та завтра
+        slots_today_map = (used_sched or {}).get(today_iso) or {}
+        slots_tomorrow_map = (used_sched or {}).get(tomorrow_iso) or {}
+
+        # Якщо на завтра немає графіка в основному джерелі, перевіряємо альтернативне
+        if self._score_schedule(used_sched, tomorrow_iso) < 2:
+            if other_sched is None and fallback_json is None:
+                fallback_json = await self.hub.ensure_data(is_new=other_is_new)
+                fall_candidates = self._get_candidate_keys(primary_key, is_new=other_is_new)
+                _, _, other_sched = self._find_region_and_schedule(fallback_json, fall_candidates)
+
+            if other_sched and self._score_schedule(other_sched, tomorrow_iso) == 2:
+                slots_tomorrow_map = other_sched.get(tomorrow_iso) or {}
+                _LOGGER.debug(
+                    "Augmenting tomorrow schedule for %s from alternative API",
+                    self.region
+                )
+
         try:
-            payload = self._build_from_api(last_json)
+            payload = self._build_payload(
+                used_reg=used_reg,
+                slots_today_map=slots_today_map,
+                slots_tomorrow_map=slots_tomorrow_map,
+                today_iso=today_iso,
+                tomorrow_iso=tomorrow_iso,
+                source_url=self.source_url,
+            )
         except Exception as e:
             raise UpdateFailed(f"Parse/Build error for {self.region}: {e}") from e
 
-        # 3) Precise tick
+        # 4) Precise tick
         self._schedule_precise_refresh(payload)
         return payload
 
-    def _build_from_api(self, api: dict[str, Any]) -> dict[str, Any]:
-        date_today = api.get("date_today")
-        date_tomorrow = api.get("date_tomorrow")
-
-        # Шукаємо регіон.
-        # self.api_region_key вже налаштовано в __init__:
-        # - для нових областей це правильний ключ (kharkivska...)
-        # - для старих областей це старий ключ (mikolaivska...)
-        regions_list = api.get("regions", [])
-        region_obj = next((r for r in regions_list if r.get("cpu") == self.api_region_key), None)
-        
-        if not region_obj:
-            raise ValueError(f"Region '{self.api_region_key}' not found in API response")
-
-        # --- Стандартна логіка парсингу (без змін) ---
-        
+    def _build_payload(
+        self,
+        used_reg: dict[str, Any],
+        slots_today_map: dict[str, int],
+        slots_tomorrow_map: dict[str, int],
+        today_iso: str,
+        tomorrow_iso: str,
+        source_url: str,
+    ) -> dict[str, Any]:
+        """Побудова внутрішнього стану координатора."""
         # Check for Day Rollover (Midnight)
-        # If API date_today is different from the date in our last successful data,
-        # it means the day has switched.
-        if self.data and self.data.get("date") and date_today:
+        if self.data and self.data.get("date") and today_iso:
             previous_date = self.data["date"]
-            if previous_date != date_today:
-                _LOGGER.debug("Day rollover detected: %s -> %s. Clearing history.", previous_date, date_today)
-                # User Request (Fix):
-                # Clear history completely on day switch.
+            if previous_date != today_iso:
+                _LOGGER.debug("Day rollover detected: %s -> %s. Clearing history.", previous_date, today_iso)
                 self._history_today = []
                 self._history_tomorrow = []
-                # We also need to ensure we don't push "yesterday's" schedule into today's history in the block below.
-                # So we return early or handle it by not matching dates. 
-                # Ideally we can use a flag, but since we are inside a method, let's just note it.
-                # Actually, we can rely on verifying 'previous_date == date_today' before updating history.
 
-        is_emergency = region_obj.get("emergency", False)
-        schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
-        slots_today_map = schedule.get(date_today) or {}
-        slots_tomorrow_map = schedule.get(date_tomorrow) or {}
-
+        is_emergency = used_reg.get("emergency", False)
         has_any_slots = any(v in (1, 2) for v in slots_today_map.values())
         if not has_any_slots:
-             base_day = datetime.fromisoformat(date_today).date() if date_today else dt_util.now(TZ_KYIV).date()
-             return {
+            base_day = datetime.fromisoformat(today_iso).date()
+            return {
                 "queue": self.queue,
                 "date": base_day.isoformat(),
                 "now_status": "nosched",
@@ -149,7 +253,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_change_at": None,
                 "today_48half": [],
                 "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-                "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
+                "source": source_url,
                 "next_on_at": None,
                 "next_off_at": None,
                 "is_emergency": is_emergency,
@@ -160,7 +264,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "history_tomorrow_48half": [],
                 "tomorrow_date": None,
                 "tomorrow_48half": [],
-             }
+            }
 
         def build_half_list(slots_map: dict[str, int]) -> list[str]:
             res: list[str] = []
@@ -200,7 +304,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         longest_outage = get_longest_consecutive_off(combined_half)
 
         now_local = dt_util.now(TZ_KYIV)
-        base_day = datetime.fromisoformat(date_today).date() if date_today else now_local.date()
+        base_day = datetime.fromisoformat(today_iso).date()
         
         if now_local.date() != base_day:
             idx = 0
@@ -209,8 +313,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         cur = today_half[idx] if today_half else "unknown"
 
-        next_on_at = self._find_next_at(["on"], base_day, today_half, idx, date_tomorrow, tomorrow_half)
-        next_off_at = self._find_next_at(["off"], base_day, today_half, idx, date_tomorrow, tomorrow_half)
+        next_on_at = self._find_next_at(["on"], base_day, today_half, idx, tomorrow_iso, tomorrow_half)
+        next_off_at = self._find_next_at(["off"], base_day, today_half, idx, tomorrow_iso, tomorrow_half)
 
         # Determine next change time based on current status and calculated timestamps
         if cur == "off":
@@ -223,6 +327,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 next_change_iso = min(next_on_at, next_off_at)
             else:
                 next_change_iso = next_on_at or next_off_at
+
         next_change_hhmm = None
         if next_change_iso:
             try:
@@ -242,7 +347,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_change_at": next_change_hhmm,
             "today_48half": today_half,
             "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-            "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
+            "source": source_url,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
             "today_outage_hours": today_outage_hours,
@@ -254,8 +359,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
         # Update "history" (store up to 3 previous versions)
-        # Only update history if the date hasn't changed (avoid pushing yesterday's data into today's history)
-        if self.data and self.data.get("date") == date_today:
+        if self.data and self.data.get("date") == today_iso:
             old_today = self.data.get("today_48half", [])
             if today_half and old_today and today_half != old_today:
                 if not self._history_today or old_today != self._history_today[0]:
@@ -270,13 +374,33 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._history_tomorrow = self._history_tomorrow[:3]
                 data["history_tomorrow_48half"] = self._history_tomorrow
 
-        if date_tomorrow and tomorrow_half:
-            data["tomorrow_date"] = date_tomorrow
+        if tomorrow_iso and tomorrow_half:
+            data["tomorrow_date"] = tomorrow_iso
             data["tomorrow_48half"] = tomorrow_half
 
         return data
 
-    # ... методи _localize_kyiv, _schedule_precise_refresh та статичні методи без змін ...
+    def _build_from_api(self, api: dict[str, Any]) -> dict[str, Any]:
+        """Зворотна сумісність для прямих викликів _build_from_api."""
+        today_iso = api.get("date_today") or dt_util.now(TZ_KYIV).date().isoformat()
+        tomorrow_iso = api.get("date_tomorrow") or (dt_util.now(TZ_KYIV).date() + timedelta(days=1)).isoformat()
+        regions_list = api.get("regions", [])
+        region_obj = next((r for r in regions_list if r.get("cpu") == self.api_region_key), None)
+        if not region_obj:
+            raise ValueError(f"Region '{self.api_region_key}' not found in API response")
+        schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
+        slots_today_map = schedule.get(today_iso) or {}
+        slots_tomorrow_map = schedule.get(tomorrow_iso) or {}
+        source_url = DTEK_API_URL if self.is_new_api else OLD_API_URL
+        return self._build_payload(
+            used_reg=region_obj,
+            slots_today_map=slots_today_map,
+            slots_tomorrow_map=slots_tomorrow_map,
+            today_iso=today_iso,
+            tomorrow_iso=tomorrow_iso,
+            source_url=source_url,
+        )
+
     def _localize_kyiv(self, d: datetime) -> datetime:
         if d.tzinfo is not None:
             return d.astimezone(TZ_KYIV)
@@ -320,7 +444,14 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Failed to schedule precise refresh: %s", e)
 
     @staticmethod
-    def _find_next_at(target_states: list[str], base_date: date, today_half: list[str], idx: int, tomorrow_date_iso: Optional[str], tomorrow_half: Optional[list[str]]) -> Optional[str]:
+    def _find_next_at(
+        target_states: list[str],
+        base_date: date,
+        today_half: list[str],
+        idx: int,
+        tomorrow_date_iso: Optional[str],
+        tomorrow_half: Optional[list[str]],
+    ) -> Optional[str]:
         if not today_half: return None
         today_tail = today_half[idx + 1 :]
         seq = list(today_tail)

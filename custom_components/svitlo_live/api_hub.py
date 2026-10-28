@@ -80,13 +80,11 @@ class SvitloApiHub:
             # Normalize slug using map if present (e.g. harkivska -> kharkivska)
             target_id = API_REGION_MAP.get(cpu, cpu)
 
-            # If already there (under new or normalized ID), we might update or ignore. 
-            # Usually keep new API preference if same slug.
+            # Filter out null schedules (like Crimea in old API)
+            schedule = r.get("schedule")
+            if schedule is None: continue
+
             if target_id not in merged_regions:
-                # Filter out null schedules (like Crimea in old API)
-                schedule = r.get("schedule")
-                if schedule is None: continue
-                
                 raw_name = r.get("name_ua") or r.get("name_en") or target_id
                 merged_regions[target_id] = {
                     "id": target_id,
@@ -94,6 +92,10 @@ class SvitloApiHub:
                     "is_new_api": False,
                     "queues": list(schedule.keys())
                 }
+            else:
+                # If already in merged_regions but without queues, take them from old API
+                if not merged_regions[target_id].get("queues") and schedule:
+                    merged_regions[target_id]["queues"] = list(schedule.keys())
 
         return sorted(merged_regions.values(), key=lambda x: x["name"])
 

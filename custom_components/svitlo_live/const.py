@@ -22,6 +22,13 @@ API_REGION_MAP = {
     "chernigivska-oblast": "chernihivska-oblast",
     "jitomirska-oblast": "zhytomyrska-oblast",
 }
+REVERSE_API_REGION_MAP = {v: k for k, v in API_REGION_MAP.items()}
+
+DNIPRO_REGIONS = {
+    "dnipro-dnem",
+    "dnipro-cek",
+    "dnipro-city",
+}
 
 # --- 3. СПИСОК РЕГІОНІВ ДЛЯ НОВОГО API ---
 # Якщо регіон (або його переклад) є в цьому списку -> йдемо на DTEK_API_URL
