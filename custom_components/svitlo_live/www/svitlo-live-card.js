@@ -1012,73 +1012,62 @@ class SvitloLiveCard extends HTMLElement {
         statusEl.style.cursor = 'pointer';
         statusEl.onclick = () => openMoreInfo(p1.id);
 
-        if (isOffCurrent && p1.isOff) {
-          statusEl.innerText = 'НЕМАЄ СВІТЛА';
-          statusEl.style.background = COLOR_OFF;
-        } else if (p1.isOff) {
-          statusEl.innerText = `${p1.text}`;
-          statusEl.style.background = COLOR_OFF;
-        } else {
+        if (p1.valRound !== undefined && p1.valRound !== '—') {
+          statusEl.innerText = `⚡ ${p1.valRound} ${p1.unit || 'В'}`;
+          statusEl.style.background = p1.isOff ? COLOR_OFF : COLOR_ON;
+        } else if (p1.text && p1.text !== '—') {
           statusEl.innerText = `⚡ ${p1.text}`;
-          statusEl.style.background = COLOR_ON;
+          statusEl.style.background = p1.isOff ? COLOR_OFF : COLOR_ON;
+        } else {
+          statusEl.innerText = isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО';
+          statusEl.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
         }
       } else {
-        // Багатофазний режим (2 або 3 фази)
-        const allOff = isOffCurrent && phaseData.every(p => p.isOff);
-        if (allOff) {
-          statusEl.innerHTML = '';
-          statusEl.innerText = 'НЕМАЄ СВІТЛА';
-          statusEl.style.background = COLOR_OFF;
-          statusEl.style.color = '#fff';
-          statusEl.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)';
-          statusEl.style.padding = '4px 14px';
-          statusEl.style.cursor = 'default';
-          statusEl.onclick = null;
-        } else {
-          statusEl.style.background = 'transparent';
-          statusEl.style.boxShadow = 'none';
-          statusEl.style.padding = '0';
-          statusEl.style.cursor = 'default';
-          statusEl.onclick = null;
-          statusEl.innerHTML = `
-            <div style="display: flex; gap: 4px; align-items: center; justify-content: flex-end;">
-              ${phaseData.map(p => {
-                const isPhaseOff = (isOffCurrent && p.isOff) || p.isOff;
-                const bg = isPhaseOff ? COLOR_OFF : COLOR_ON;
-                const valDisplay = p.valRound !== undefined && p.valRound !== '—' ? `${p.valRound}В` : p.text;
-                return `
-                  <div class="phase-pill" data-entity-id="${p.id}" title="${p.name}: ${p.text}" style="
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 3px;
-                    font-size: 11px;
-                    padding: 4px 7px;
-                    border-radius: 7px;
-                    font-weight: 700;
-                    white-space: nowrap;
-                    background: ${bg};
-                    color: #fff;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
-                    letter-spacing: 0.2px;
-                    cursor: pointer;
-                  ">
-                    <span style="opacity: 0.75; font-size: 9px; font-weight: 600;">${p.label}</span>
-                    <span>${valDisplay}</span>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          `;
+        // Багатофазний режим (2 або 3 фази) - завжди показуємо бейджі фаз
+        statusEl.style.background = 'transparent';
+        statusEl.style.boxShadow = 'none';
+        statusEl.style.padding = '0';
+        statusEl.style.cursor = 'default';
+        statusEl.onclick = null;
+        statusEl.innerHTML = `
+          <div style="display: flex; gap: 4px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+            ${phaseData.map(p => {
+              const isPhaseOff = p.isOff;
+              const isUnknown = p.value === null && p.text === '—';
+              const bg = isUnknown ? (config.color_unknown || '#444444') : (isPhaseOff ? COLOR_OFF : COLOR_ON);
+              const valDisplay = p.valRound !== undefined && p.valRound !== '—' ? `${p.valRound}В` : p.text;
+              return `
+                <div class="phase-pill" data-entity-id="${p.id}" title="${p.name}: ${p.text}" style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 3px;
+                  font-size: 11px;
+                  padding: 4px 7px;
+                  border-radius: 7px;
+                  font-weight: 700;
+                  white-space: nowrap;
+                  background: ${bg};
+                  color: #fff;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+                  letter-spacing: 0.2px;
+                  cursor: pointer;
+                ">
+                  <span style="opacity: 0.75; font-size: 9px; font-weight: 600;">${p.label}</span>
+                  <span>${valDisplay}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
 
-          // Додаємо кліки на фази для відкриття more-info
-          const pills = statusEl.querySelectorAll('.phase-pill');
-          pills.forEach(pill => {
-            pill.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              openMoreInfo(pill.dataset.entityId);
-            });
+        // Додаємо кліки на фази для відкриття more-info
+        const pills = statusEl.querySelectorAll('.phase-pill');
+        pills.forEach(pill => {
+          pill.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openMoreInfo(pill.dataset.entityId);
           });
-        }
+        });
       }
     }
 
