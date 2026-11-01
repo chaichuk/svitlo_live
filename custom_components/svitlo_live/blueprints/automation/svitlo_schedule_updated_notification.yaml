@@ -73,6 +73,13 @@ blueprint:
       selector:
         boolean:
 
+    show_duration:
+      name: Показувати тривалість відключень
+      description: "Додавати тривалість кожного слоту та загальний час відключень за добу"
+      default: true
+      selector:
+        boolean:
+
     storage_helper:
       name: Helper для збереження
       description: "Text helper для збереження стану (обов'язково!)"
@@ -129,6 +136,7 @@ variables:
   notify_emergency_changes: !input notify_emergency_changes
   quiet_mode: !input quiet_mode
   show_location: !input show_location
+  show_duration: !input show_duration
 
   # Поточний статус аварії
   is_emergency: >-
@@ -306,22 +314,64 @@ action:
             {%- endif %}
 
             {%- if events_today | length > 0 %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }})
+            {%- if show_duration %}
+            {%- set ns_t = namespace(m=0) %}
             {%- for e in events_today %}
             {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- set ns_t.m = ns_t.m + (((end - s).total_seconds() // 60) | int) %}
+            {%- endfor %}
+            {%- set th = (ns_t.m // 60) | int %}
+            {%- set tm = (ns_t.m % 60) | int %}
+            {%- set t_str = (th ~ ' год ' ~ tm ~ ' хв') if (th > 0 and tm > 0) else ((th ~ ' год') if th > 0 else (tm ~ ' хв')) %}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }}) — всього {{ t_str }}
+            {%- else %}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }})
+            {%- endif %}
+            {%- for e in events_today %}
+            {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
+            {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- if show_duration %}
+            {%- set diff = ((end - s).total_seconds() // 60) | int %}
+            {%- set h = (diff // 60) | int %}
+            {%- set m = (diff % 60) | int %}
+            {%- set dur = (h ~ ' год ' ~ m ~ ' хв') if (h > 0 and m > 0) else ((h ~ ' год') if h > 0 else (m ~ ' хв')) %}
+            ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }} ({{ dur }})
+            {%- else %}
             ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }}
+            {%- endif %}
             {%- endfor %}
             {%- else %}
             📅 СЬОГОДНІ: ⚡ далі без відключень
             {%- endif %}
 
             {%- if events_tomorrow | length > 0 %}
-            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m') }})
+            {%- if show_duration %}
+            {%- set ns_tom = namespace(m=0) %}
             {%- for e in events_tomorrow %}
             {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- set ns_tom.m = ns_tom.m + (((e2 - s2).total_seconds() // 60) | int) %}
+            {%- endfor %}
+            {%- set tom_h = (ns_tom.m // 60) | int %}
+            {%- set tom_m = (ns_tom.m % 60) | int %}
+            {%- set tom_str = (tom_h ~ ' год ' ~ tom_m ~ ' хв') if (tom_h > 0 and tom_m > 0) else ((tom_h ~ ' год') if tom_h > 0 else (tom_m ~ ' хв')) %}
+            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m') }}) — всього {{ tom_str }}
+            {%- else %}
+            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m') }})
+            {%- endif %}
+            {%- for e in events_tomorrow %}
+            {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
+            {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- if show_duration %}
+            {%- set diff2 = ((e2 - s2).total_seconds() // 60) | int %}
+            {%- set h2 = (diff2 // 60) | int %}
+            {%- set m2 = (diff2 % 60) | int %}
+            {%- set dur2 = (h2 ~ ' год ' ~ m2 ~ ' хв') if (h2 > 0 and m2 > 0) else ((h2 ~ ' год') if h2 > 0 else (m2 ~ ' хв')) %}
+            ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }} ({{ dur2 }})
+            {%- else %}
             ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
+            {%- endif %}
             {%- endfor %}
             {%- endif %}
 
@@ -337,22 +387,64 @@ action:
             {%- endif %}
 
             {%- if events_today | length > 0 %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
+            {%- if show_duration %}
+            {%- set ns_t = namespace(m=0) %}
             {%- for e in events_today %}
             {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- set ns_t.m = ns_t.m + (((end - s).total_seconds() // 60) | int) %}
+            {%- endfor %}
+            {%- set th = (ns_t.m // 60) | int %}
+            {%- set tm = (ns_t.m % 60) | int %}
+            {%- set t_str = (th ~ ' год ' ~ tm ~ ' хв') if (th > 0 and tm > 0) else ((th ~ ' год') if th > 0 else (tm ~ ' хв')) %}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}) — всього {{ t_str }}
+            {%- else %}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
+            {%- endif %}
+            {%- for e in events_today %}
+            {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
+            {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- if show_duration %}
+            {%- set diff = ((end - s).total_seconds() // 60) | int %}
+            {%- set h = (diff // 60) | int %}
+            {%- set m = (diff % 60) | int %}
+            {%- set dur = (h ~ ' год ' ~ m ~ ' хв') if (h > 0 and m > 0) else ((h ~ ' год') if h > 0 else (m ~ ' хв')) %}
+            ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }} ({{ dur }})
+            {%- else %}
             ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }}
+            {%- endif %}
             {%- endfor %}
             {%- else %}
             📅 СЬОГОДНІ: ⚡ далі без відключень
             {%- endif %}
 
             {%- if events_tomorrow | length > 0 %}
-            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
+            {%- if show_duration %}
+            {%- set ns_tom = namespace(m=0) %}
             {%- for e in events_tomorrow %}
             {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- set ns_tom.m = ns_tom.m + (((e2 - s2).total_seconds() // 60) | int) %}
+            {%- endfor %}
+            {%- set tom_h = (ns_tom.m // 60) | int %}
+            {%- set tom_m = (ns_tom.m % 60) | int %}
+            {%- set tom_str = (tom_h ~ ' год ' ~ tom_m ~ ' хв') if (tom_h > 0 and tom_m > 0) else ((tom_h ~ ' год') if tom_h > 0 else (tom_m ~ ' хв')) %}
+            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }}) — всього {{ tom_str }}
+            {%- else %}
+            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
+            {%- endif %}
+            {%- for e in events_tomorrow %}
+            {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
+            {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
+            {%- if show_duration %}
+            {%- set diff2 = ((e2 - s2).total_seconds() // 60) | int %}
+            {%- set h2 = (diff2 // 60) | int %}
+            {%- set m2 = (diff2 % 60) | int %}
+            {%- set dur2 = (h2 ~ ' год ' ~ m2 ~ ' хв') if (h2 > 0 and m2 > 0) else ((h2 ~ ' год') if h2 > 0 else (m2 ~ ' хв')) %}
+            ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }} ({{ dur2 }})
+            {%- else %}
             ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
+            {%- endif %}
             {%- endfor %}
             {%- endif %}
 
