@@ -1,4 +1,4 @@
-console.info('%c SVITLO-LIVE-CARD %c v2.9.4 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
+console.info('%c SVITLO-LIVE-CARD %c v2.9.5 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
 // Svitlo Live Card Editor
 class SvitloLiveCardEditor extends HTMLElement {
   setConfig(config) {
