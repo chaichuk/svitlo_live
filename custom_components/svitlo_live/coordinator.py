@@ -132,20 +132,27 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         prim_candidates = self._get_candidate_keys(primary_key, is_new=primary_is_new)
         prim_reg, prim_key, prim_sched = self._find_region_and_schedule(primary_json, prim_candidates)
         prim_score = self._score_schedule(prim_sched, today_iso)
+        prim_emergency = bool(prim_reg and prim_reg.get("emergency"))
 
         # 3) Перевіряємо альтернативне джерело (fallback), якщо в первинному немає повних даних
+        # Якщо в первинному джерелі активні екстрені відключення (emergency), графіків може не бути (це норма).
+        # Не шукаємо fallback якщо діє emergency у первинному і регіон знайдено.
         fallback_is_new = not primary_is_new
         fallback_json = None
         fall_reg, fall_key, fall_sched = None, None, None
         fall_score = 0
 
-        if prim_score < 2 or not prim_reg:
+        if (prim_score < 2 and not prim_emergency) or not prim_reg:
             fallback_json = await self.hub.ensure_data(is_new=fallback_is_new)
             fall_candidates = self._get_candidate_keys(primary_key, is_new=fallback_is_new)
             fall_reg, fall_key, fall_sched = self._find_region_and_schedule(fallback_json, fall_candidates)
             fall_score = self._score_schedule(fall_sched, today_iso)
 
-        if fall_score > prim_score:
+        # Перемикаємося на fallback тільки якщо:
+        # 1) fall_score > prim_score
+        # 2) І у первинному джерелі НЕМАЄ активного emergency (бо пустий розклад при emergency є штатною ситуацією,
+        #    і його не можна замінювати заглушкою з нулями зі старого API).
+        if fall_score > prim_score and not prim_emergency:
             _LOGGER.warning(
                 "Using fallback API (%s) for %s/%s (primary score=%d vs fallback score=%d)",
                 OLD_API_URL if not fallback_is_new else DTEK_API_URL,
@@ -194,7 +201,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slots_tomorrow_map = (used_sched or {}).get(tomorrow_iso) or {}
 
         # Якщо на завтра немає графіка в основному джерелі, перевіряємо альтернативне
-        if self._score_schedule(used_sched, tomorrow_iso) < 2:
+        # (тільки якщо в основному джерелі не активна аварія без розкладів)
+        if self._score_schedule(used_sched, tomorrow_iso) < 2 and not prim_emergency:
             if other_sched is None and fallback_json is None:
                 fallback_json = await self.hub.ensure_data(is_new=other_is_new)
                 fall_candidates = self._get_candidate_keys(primary_key, is_new=other_is_new)
@@ -207,6 +215,13 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.region
                 )
 
+        # Статус екстрених відключень: якщо хоча б одне джерело (особливо первинне) повідомляє про аварію
+        is_emergency = bool(
+            (used_reg and used_reg.get("emergency"))
+            or (prim_reg and prim_reg.get("emergency"))
+            or (fall_reg and fall_reg.get("emergency"))
+        )
+
         try:
             payload = self._build_payload(
                 used_reg=used_reg,
@@ -215,6 +230,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 today_iso=today_iso,
                 tomorrow_iso=tomorrow_iso,
                 source_url=self.source_url,
+                is_emergency=is_emergency,
             )
         except Exception as e:
             raise UpdateFailed(f"Parse/Build error for {self.region}: {e}") from e
@@ -231,6 +247,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today_iso: str,
         tomorrow_iso: str,
         source_url: str,
+        is_emergency: Optional[bool] = None,
     ) -> dict[str, Any]:
         """Побудова внутрішнього стану координатора."""
         # Check for Day Rollover (Midnight)
@@ -241,7 +258,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._history_today = []
                 self._history_tomorrow = []
 
-        is_emergency = used_reg.get("emergency", False)
+        if is_emergency is None:
+            is_emergency = bool(used_reg.get("emergency", False))
         has_any_slots = any(v in (1, 2) for v in slots_today_map.values())
         if not has_any_slots:
             base_day = datetime.fromisoformat(today_iso).date()

@@ -1,4 +1,3 @@
-
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -45,6 +44,13 @@ class SvitloBaseEntity(CoordinatorEntity):
     def available(self) -> bool:
         return True
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "region": getattr(self.coordinator, "region", ""),
+            "queue": getattr(self.coordinator, "queue", ""),
+        }
+
 
 class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
     """Бінарний сенсор: On = світло є; Off = відключення."""
@@ -69,8 +75,6 @@ class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
         return None
 
 
-
-
 class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
     """Сенсор аварійних відключень."""
     _attr_translation_key = "svitlo_emergency"
@@ -87,8 +91,6 @@ class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
         if not data:
             return None
         return data.get("is_emergency", False)
-
-
 
     @property
     def icon(self):
