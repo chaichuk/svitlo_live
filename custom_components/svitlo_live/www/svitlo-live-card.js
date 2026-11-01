@@ -1,4 +1,4 @@
-console.info('%c SVITLO-LIVE-CARD %c v2.9.6 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
+console.info('%c SVITLO-LIVE-CARD-TEST %c v2.9.6-nspanel-test ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
 // Svitlo Live Card Editor
 class SvitloLiveCardEditor extends HTMLElement {
   setConfig(config) {
@@ -821,11 +821,47 @@ class SvitloLiveCard extends HTMLElement {
     }
   }
 
+  _getKyivParts(d = new Date()) {
+    for (const tz of ['Europe/Kyiv', 'Europe/Kiev']) {
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz,
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+          hourCycle: 'h23',
+        });
+        const parts = formatter.formatToParts(d);
+        const map = {};
+        for (const p of parts) map[p.type] = p.value;
+        const y = parseInt(map.year, 10);
+        const m = parseInt(map.month, 10);
+        const day = parseInt(map.day, 10);
+        const h = parseInt(map.hour, 10);
+        const min = parseInt(map.minute, 10);
+        const s = parseInt(map.second, 10);
+        if (!isNaN(y) && !isNaN(m) && !isNaN(day) && !isNaN(h) && !isNaN(min)) {
+          const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          return { y, m, day, h, min, s: isNaN(s) ? 0 : s, dateStr };
+        }
+      } catch (e) {}
+    }
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const h = d.getHours();
+    const min = d.getMinutes();
+    const s = d.getSeconds();
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return { y, m, day, h, min, s, dateStr };
+  }
+
   _getKyivTime() {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("en-US", { timeZone: "Europe/Kyiv", hour12: false, hour: '2-digit', minute: '2-digit' });
-    const [h, m] = timeStr.split(':').map(Number);
-    return { h, m };
+    const p = this._getKyivParts();
+    return { h: p.h, m: p.min };
   }
 
   _renderWithCurrentDay(hass) {
@@ -858,7 +894,8 @@ class SvitloLiveCard extends HTMLElement {
 
     if (attrs.date) {
       const dateStr = attrs.date.split('T')[0];
-      const kyivNowStr = new Date().toLocaleString("en-CA", { timeZone: "Europe/Kyiv" }).split(',')[0];
+      const kyivParts = this._getKyivParts();
+      const kyivNowStr = kyivParts.dateStr;
 
       if (dateStr < kyivNowStr) {
         todayData = tomorrowData;
@@ -900,9 +937,8 @@ class SvitloLiveCard extends HTMLElement {
 
     const getBaselineDate = () => {
       const now = new Date();
-      const kyivTimeStr = now.toLocaleTimeString("en-US", { timeZone: "Europe/Kyiv", hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const [h, m, s] = kyivTimeStr.split(':').map(Number);
-      const msSinceMidnight = (h * 3600 + m * 60 + s) * 1000;
+      const p = this._getKyivParts(now);
+      const msSinceMidnight = (p.h * 3600 + p.min * 60 + p.s) * 1000;
       const kyivMidnightMs = now.getTime() - msSinceMidnight;
       const date = new Date(kyivMidnightMs);
       date.setMilliseconds(0);
@@ -923,9 +959,8 @@ class SvitloLiveCard extends HTMLElement {
       const now = new Date();
       const localMidnight = new Date(now);
       localMidnight.setHours(0, 0, 0, 0);
-      const kyivTimeStr = localMidnight.toLocaleTimeString("en-US", { timeZone: "Europe/Kyiv", hour12: false, hour: '2-digit', minute: '2-digit' });
-      const [kh, km] = kyivTimeStr.split(':').map(Number);
-      return kh * 2 + (km >= 30 ? 1 : 0);
+      const p = this._getKyivParts(localMidnight);
+      return p.h * 2 + (p.min >= 30 ? 1 : 0);
     };
 
     if (isDynamic) {
@@ -1295,7 +1330,8 @@ class SvitloLiveCard extends HTMLElement {
         durationLabel.style.display = 'block';
         const updateDuration = () => {
           const diffMins = Math.floor((new Date() - rulerChangeTime) / 60000);
-          durationLabel.innerText = `Тривалість: ${Math.floor(diffMins / 60).toString().padStart(2, '0')} год ${(diffMins % 60).toString().padStart(2, '0')} хв`;
+          const safeMins = Math.max(0, diffMins);
+          durationLabel.innerText = `Тривалість: ${Math.floor(safeMins / 60).toString().padStart(2, '0')} год ${(safeMins % 60).toString().padStart(2, '0')} хв`;
         };
         updateDuration();
         if (this._durationInterval) clearInterval(this._durationInterval);
