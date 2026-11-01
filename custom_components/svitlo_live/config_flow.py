@@ -10,12 +10,11 @@ from homeassistant.helpers import entity_registry as er
 
 from .api_hub import SvitloApiHub
 from .const import (
-    DOMAIN, 
-    CONF_REGION, 
-    CONF_REGION, 
-    CONF_QUEUE, 
+    DOMAIN,
+    CONF_REGION,
+    CONF_QUEUE,
     CONF_PRESERVE_ID,
-    DEFAULT_SCAN_INTERVAL
+    DEFAULT_SCAN_INTERVAL,
 )
 
 async def _async_get_hub(hass: HomeAssistant) -> SvitloApiHub:

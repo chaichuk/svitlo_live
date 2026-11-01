@@ -47,9 +47,17 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
     if not lovelace:
         return
 
-    # Якщо використовується storage mode
-    if hasattr(lovelace, "resources"):
-        resources = lovelace.resources
+    try:
+        resources = getattr(lovelace, "resources", None)
+        # Якщо режим YAML або ресурси не підтримують динамічне додавання (наприклад, ResourceYAMLCollection)
+        if not resources or not hasattr(resources, "async_create_item"):
+            _LOGGER.debug(
+                "Lovelace resources is not mutable (e.g. YAML mode). "
+                "If using the custom card, please add '%s' manually to your Lovelace resources",
+                url,
+            )
+            return
+
         if not resources.loaded:
             await resources.async_load()
         
@@ -58,6 +66,8 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
         if not exists:
             _LOGGER.debug("Registering Svitlo Live card resource automatically")
             await resources.async_create_item({"res_type": "module", "url": url})
+    except Exception as err:
+        _LOGGER.warning("Could not automatically register Lovelace resource '%s': %s", url, err)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

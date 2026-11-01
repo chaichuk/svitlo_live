@@ -49,7 +49,6 @@ NEW_API_REGIONS = {
     "rivnenska-oblast",
     "ternopilska-oblast",
     "zakarpatska-oblast",
-    "zaporizka-oblast",
     "zhytomyrska-oblast",
     "sumska-oblast",
 }

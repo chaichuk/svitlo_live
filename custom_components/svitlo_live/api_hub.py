@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Optional, Dict, List
 
@@ -10,9 +11,23 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
-from .const import OLD_API_URL, DTEK_API_URL, API_REGION_MAP
+from .const import OLD_API_URL, DTEK_API_URL, API_REGION_MAP, NEW_API_REGIONS
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _sort_queues(queues: list[str]) -> list[str]:
+    """Sort queues naturally (e.g., 1.1, 1.2, ..., 10.1)."""
+    def _key(q: str):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", q)]
+    return sorted(queues, key=_key)
+
+
+def _normalize_name(name: str, slug: str) -> str:
+    """Ensure oblast-level regions have 'область' suffix for consistent display."""
+    if slug.endswith("-oblast") and "область" not in name.lower():
+        return f"{name} область"
+    return name
 
 
 class SvitloApiHub:
@@ -54,22 +69,18 @@ class SvitloApiHub:
 
         merged_regions = {}
 
-        def _normalize_name(name: str, slug: str) -> str:
-            """Ensure oblast-level regions have 'область' suffix for consistent display."""
-            if slug.endswith("-oblast") and "область" not in name.lower():
-                return f"{name} область"
-            return name
-
-        # Parse New API (usually higher priority or has different slugs)
+        # Parse New API (only for regions explicitly configured for New API)
         for r in new_data.get("regions", []):
             cpu = r.get("cpu")
             if not cpu: continue
+            if cpu not in NEW_API_REGIONS and API_REGION_MAP.get(cpu, cpu) not in NEW_API_REGIONS:
+                continue
             raw_name = r.get("name_ua") or r.get("name_en") or cpu
             merged_regions[cpu] = {
                 "id": cpu,
                 "name": _normalize_name(raw_name, cpu),
                 "is_new_api": True,
-                "queues": list(r.get("schedule", {}).keys())
+                "queues": _sort_queues(list(r.get("schedule", {}).keys()))
             }
 
         # Parse Old API (fallback or unique regions)
@@ -84,18 +95,27 @@ class SvitloApiHub:
             schedule = r.get("schedule")
             if schedule is None: continue
 
+            old_queues = list(schedule.keys())
+
             if target_id not in merged_regions:
                 raw_name = r.get("name_ua") or r.get("name_en") or target_id
                 merged_regions[target_id] = {
                     "id": target_id,
                     "name": _normalize_name(raw_name, target_id),
                     "is_new_api": False,
-                    "queues": list(schedule.keys())
+                    "queues": _sort_queues(old_queues)
                 }
             else:
-                # If already in merged_regions but without queues, take them from old API
-                if not merged_regions[target_id].get("queues") and schedule:
-                    merged_regions[target_id]["queues"] = list(schedule.keys())
+                # If already in merged_regions, ensure any missing queues from Old API are merged
+                existing_queues = merged_regions[target_id].get("queues", [])
+                if not existing_queues:
+                    merged_regions[target_id]["queues"] = _sort_queues(old_queues)
+                else:
+                    combined = list(existing_queues)
+                    for q in old_queues:
+                        if q not in combined:
+                            combined.append(q)
+                    merged_regions[target_id]["queues"] = _sort_queues(combined)
 
         return sorted(merged_regions.values(), key=lambda x: x["name"])
 
