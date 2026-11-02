@@ -292,6 +292,58 @@ action:
             {% endfor %}
             {{ ns.events }}
 
+          today_total_str: >-
+            {% set tz = now().tzinfo %}
+            {% set t_start = today_at('00:00') %}
+            {% set t_end = t_start + timedelta(days=1) %}
+            {% set ns = namespace(m=0) %}
+            {% for e in raw_events %}
+              {% set es = as_datetime(e.start).astimezone(tz) %}
+              {% set ee = as_datetime(e.end).astimezone(tz) %}
+              {% set os = es if es > t_start else t_start %}
+              {% set oe = ee if ee < t_end else t_end %}
+              {% if oe > os %}
+                {% set ns.m = ns.m + (((oe - os).total_seconds() // 60) | int) %}
+              {% endif %}
+            {% endfor %}
+            {% set h = (ns.m // 60) | int %}
+            {% set m = (ns.m % 60) | int %}
+            {% if h > 0 and m > 0 %}
+              {{ h ~ ' год ' ~ m ~ ' хв' }}
+            {% elif h > 0 %}
+              {{ h ~ ' год' }}
+            {% elif m > 0 %}
+              {{ m ~ ' хв' }}
+            {% else %}
+              0 год
+            {% endif %}
+
+          tomorrow_total_str: >-
+            {% set tz = now().tzinfo %}
+            {% set tom_start = today_at('00:00') + timedelta(days=1) %}
+            {% set tom_end = tom_start + timedelta(days=1) %}
+            {% set ns = namespace(m=0) %}
+            {% for e in raw_events %}
+              {% set es = as_datetime(e.start).astimezone(tz) %}
+              {% set ee = as_datetime(e.end).astimezone(tz) %}
+              {% set os = es if es > tom_start else tom_start %}
+              {% set oe = ee if ee < tom_end else tom_end %}
+              {% if oe > os %}
+                {% set ns.m = ns.m + (((oe - os).total_seconds() // 60) | int) %}
+              {% endif %}
+            {% endfor %}
+            {% set h = (ns.m // 60) | int %}
+            {% set m = (ns.m % 60) | int %}
+            {% if h > 0 and m > 0 %}
+              {{ h ~ ' год ' ~ m ~ ' хв' }}
+            {% elif h > 0 %}
+              {{ h ~ ' год' }}
+            {% elif m > 0 %}
+              {{ m ~ ' хв' }}
+            {% else %}
+              0 год
+            {% endif %}
+
           final_title: >-
             {% if emergency_status_changed and notify_emergency_changes %}
               {% if is_emergency %}
@@ -314,20 +366,7 @@ action:
             {%- endif %}
 
             {%- if events_today | length > 0 %}
-            {%- if show_duration %}
-            {%- set ns_t = namespace(m=0) %}
-            {%- for e in events_today %}
-            {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
-            {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
-            {%- set ns_t.m = ns_t.m + (((end - s).total_seconds() // 60) | int) %}
-            {%- endfor %}
-            {%- set th = (ns_t.m // 60) | int %}
-            {%- set tm = (ns_t.m % 60) | int %}
-            {%- set t_str = (th ~ ' год ' ~ tm ~ ' хв') if (th > 0 and tm > 0) else ((th ~ ' год') if th > 0 else (tm ~ ' хв')) %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }}) — всього {{ t_str }}
-            {%- else %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }})
-            {%- endif %}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m') }}){% if show_duration %} — всього {{ today_total_str }}{% endif %}
             {%- for e in events_today %}
             {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
@@ -346,20 +385,7 @@ action:
             {%- endif %}
 
             {%- if events_tomorrow | length > 0 %}
-            {%- if show_duration %}
-            {%- set ns_tom = namespace(m=0) %}
-            {%- for e in events_tomorrow %}
-            {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
-            {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
-            {%- set ns_tom.m = ns_tom.m + (((e2 - s2).total_seconds() // 60) | int) %}
-            {%- endfor %}
-            {%- set tom_h = (ns_tom.m // 60) | int %}
-            {%- set tom_m = (ns_tom.m % 60) | int %}
-            {%- set tom_str = (tom_h ~ ' год ' ~ tom_m ~ ' хв') if (tom_h > 0 and tom_m > 0) else ((tom_h ~ ' год') if tom_h > 0 else (tom_m ~ ' хв')) %}
-            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m') }}) — всього {{ tom_str }}
-            {%- else %}
-            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m') }})
-            {%- endif %}
+            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m') }}){% if show_duration %} — всього {{ tomorrow_total_str }}{% endif %}
             {%- for e in events_tomorrow %}
             {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
@@ -387,20 +413,7 @@ action:
             {%- endif %}
 
             {%- if events_today | length > 0 %}
-            {%- if show_duration %}
-            {%- set ns_t = namespace(m=0) %}
-            {%- for e in events_today %}
-            {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
-            {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
-            {%- set ns_t.m = ns_t.m + (((end - s).total_seconds() // 60) | int) %}
-            {%- endfor %}
-            {%- set th = (ns_t.m // 60) | int %}
-            {%- set tm = (ns_t.m % 60) | int %}
-            {%- set t_str = (th ~ ' год ' ~ tm ~ ' хв') if (th > 0 and tm > 0) else ((th ~ ' год') if th > 0 else (tm ~ ' хв')) %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}) — всього {{ t_str }}
-            {%- else %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
-            {%- endif %}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}){% if show_duration %} — всього {{ today_total_str }}{% endif %}
             {%- for e in events_today %}
             {%- set s = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set end = as_datetime(e.end).astimezone(now().tzinfo) %}
@@ -419,20 +432,7 @@ action:
             {%- endif %}
 
             {%- if events_tomorrow | length > 0 %}
-            {%- if show_duration %}
-            {%- set ns_tom = namespace(m=0) %}
-            {%- for e in events_tomorrow %}
-            {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
-            {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
-            {%- set ns_tom.m = ns_tom.m + (((e2 - s2).total_seconds() // 60) | int) %}
-            {%- endfor %}
-            {%- set tom_h = (ns_tom.m // 60) | int %}
-            {%- set tom_m = (ns_tom.m % 60) | int %}
-            {%- set tom_str = (tom_h ~ ' год ' ~ tom_m ~ ' хв') if (tom_h > 0 and tom_m > 0) else ((tom_h ~ ' год') if tom_h > 0 else (tom_m ~ ' хв')) %}
-            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }}) — всього {{ tom_str }}
-            {%- else %}
-            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
-            {%- endif %}
+            📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }}){% if show_duration %} — всього {{ tomorrow_total_str }}{% endif %}
             {%- for e in events_tomorrow %}
             {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) %}
             {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) %}
