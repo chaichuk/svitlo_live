@@ -1,4 +1,4 @@
-console.info('%c SVITLO-LIVE-CARD %c v2.9.8 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
+console.info('%c SVITLO-LIVE-CARD %c v2.9.9 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
 // Svitlo Live Card Editor
 class SvitloLiveCardEditor extends HTMLElement {
   setConfig(config) {
@@ -19,6 +19,15 @@ class SvitloLiveCardEditor extends HTMLElement {
     const entities = Object.keys(this._hass.states).filter((eid) => {
       return eid.startsWith("calendar.svitlo_");
     });
+
+    const renderSwitch = (id, label, style = "") => {
+      return `
+        <label style="display: flex; align-items: center; gap: 10px; margin-top: 8px; cursor: pointer; user-select: none;" onclick="const s = this.querySelector('ha-switch'); if (event.target !== s) s.click();">
+          <ha-switch id="${id}"></ha-switch>
+          <span style="font-size: 14px; flex: 1;">${label}</span>
+        </label>
+      `;
+    };
 
     if (!this._initialized) {
       this.innerHTML = `
@@ -44,35 +53,31 @@ class SvitloLiveCardEditor extends HTMLElement {
             <option value="">Завантаження списку...</option>
           </select>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор екстрених відключень (необов'язково):</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+            <label style="font-weight: bold; font-size: 14px;">Сенсор екстрених відключень (необов'язково):</label>
+            <button type="button" id="clear-emergency" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="emergency-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор повітряної тривоги (необов'язково):</label>
+          ${renderSwitch("emergency-switch", "Показувати сповіщення про екстрені відключення", "display: flex; align-items: center; margin-top: 4px;")}
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+            <label style="font-weight: bold; font-size: 14px;">Сенсор повітряної тривоги (необов'язково):</label>
+            <button type="button" id="clear-air-alert" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="air-alert-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <ha-formfield label="Вмикати анімацію тривоги" style="display: flex; align-items: center; margin-top: 4px;">
-            <ha-switch id="air-alert-animation-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("air-alert-animation-switch", "Вмикати анімацію тривоги", "display: flex; align-items: center; margin-top: 4px;")}
 
-          <ha-formfield label="Динамічний таймлайн (показувати наступні 24 години, якщо графік опубліковано)" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="dynamic-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("dynamic-switch", "Динамічний таймлайн (показувати наступні 24 години, якщо графік опубліковано)", "display: flex; align-items: center; margin-top: 8px;")}
 
-          <ha-formfield label="Показувати попередній графік (історію)" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="history-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("history-switch", "Показувати попередній графік (історію)", "display: flex; align-items: center; margin-top: 8px;")}
 
-          <ha-formfield label="Показувати час ввімкнення/вимкнення" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="change-time-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("change-time-switch", "Показувати час ввімкнення/вимкнення", "display: flex; align-items: center; margin-top: 8px;")}
 
-          <ha-formfield label="Показувати тривалість відключення" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="duration-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("duration-switch", "Показувати тривалість відключення", "display: flex; align-items: center; margin-top: 8px;")}
 
-          <ha-formfield label="Показувати статистику" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="stats-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("stats-switch", "Показувати статистику", "display: flex; align-items: center; margin-top: 8px;")}
 
           <div id="stat-type-selectors" style="display: none; margin-top: 8px; padding: 10px; background: rgba(127,127,127,0.05); border-radius: 8px;">
             <label style="font-weight: bold; font-size: 13px;">Лівий блок:</label>
@@ -92,23 +97,23 @@ class SvitloLiveCardEditor extends HTMLElement {
             </select>
           </div>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор оновлення графіку (необов'язково):</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+            <label style="font-weight: bold; font-size: 14px;">Сенсор оновлення графіку (необов'язково):</label>
+            <button type="button" id="clear-schedule" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="schedule-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Власний сенсор статусу (напр. розетка):</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px;">
+            <label style="font-weight: bold; font-size: 14px;">Власний сенсор статусу (напр. розетка):</label>
+            <button type="button" id="clear-status" title="Очистити вибір" style="background: none; border: none; color: #ef5350; cursor: pointer; font-size: 12px; font-weight: 600; padding: 2px 4px; display: none;">✕ Очистити</button>
+          </div>
           <div id="status-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <ha-formfield label="Використовувати цей сенсор як основний пріоритет" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="priority-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("priority-switch", "Використовувати цей сенсор як основний пріоритет", "display: flex; align-items: center; margin-top: 8px;")}
 
-          <ha-formfield label="Інвертувати сенсор (ON = немає світла)" style="display: flex; align-items: center; margin-top: 4px;">
-            <ha-switch id="invert-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("invert-switch", "Інвертувати сенсор (ON = немає світла)", "display: flex; align-items: center; margin-top: 4px;")}
 
-          <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
-            <ha-switch id="actual-history-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("actual-history-switch", "Фарбувати минулі слоти по фактичним відключенням", "display: flex; align-items: center; margin-top: 8px;")}
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">⚡ Сенсори напруги (замість "Є світло"):</label>
           <div style="font-size: 12px; opacity: 0.7; margin: 2px 0 8px 0;">Оберіть сенсор(и) напруги для 1 або 3 фаз. Якщо не обрано — відображатиметься стандартний статус "Є світло".</div>
@@ -132,9 +137,7 @@ class SvitloLiveCardEditor extends HTMLElement {
           <div id="voltage3-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
-          <ha-formfield label="Показувати тінь картки" style="display: flex; align-items: center; margin-top: 4px;">
-            <ha-switch id="shadow-switch"></ha-switch>
-          </ha-formfield>
+          ${renderSwitch("shadow-switch", "Показувати тінь картки", "display: flex; align-items: center; margin-top: 4px;")}
 
           <div style="display: flex; gap: 12px; margin-top: 12px;">
             <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
@@ -350,6 +353,9 @@ class SvitloLiveCardEditor extends HTMLElement {
     const airAlertAnimSwitch = this.querySelector("#air-alert-animation-switch");
     if (airAlertAnimSwitch) airAlertAnimSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'air_alert_animation', value: ev.target.checked } }));
 
+    const emergencySwitch = this.querySelector("#emergency-switch");
+    if (emergencySwitch) emergencySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_emergency', value: ev.target.checked } }));
+
     const resetColorsBtn = this.querySelector("#reset-colors-btn");
     if (resetColorsBtn) {
       resetColorsBtn.addEventListener("click", () => {
@@ -377,6 +383,9 @@ class SvitloLiveCardEditor extends HTMLElement {
           }
           const newConfig = { ...this._config };
           configKeys.forEach(k => delete newConfig[k]);
+          if (configKeys.includes('emergency_entity')) {
+            newConfig.show_emergency = false;
+          }
           this._config = newConfig;
           this._updateProperties();
           this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
@@ -387,6 +396,10 @@ class SvitloLiveCardEditor extends HTMLElement {
     setupClear('#clear-voltage1', '_voltage1Selector', ['voltage_entity', 'phase1_entity', 'voltage_entity_l1']);
     setupClear('#clear-voltage2', '_voltage2Selector', ['phase2_entity', 'voltage_entity_l2']);
     setupClear('#clear-voltage3', '_voltage3Selector', ['phase3_entity', 'voltage_entity_l3']);
+    setupClear('#clear-status', '_statusSelector', ['status_entity']);
+    setupClear('#clear-emergency', '_emergencySelector', ['emergency_entity']);
+    setupClear('#clear-air-alert', '_airAlertSelector', ['air_alert_entity']);
+    setupClear('#clear-schedule', '_scheduleSelector', ['schedule_entity']);
   }
 
   _updateProperties() {
@@ -407,16 +420,22 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._statusSelector.hass = this._hass;
       this._statusSelector.value = this._config.status_entity || '';
     }
+    const clearStatus = this.querySelector("#clear-status");
+    if (clearStatus) clearStatus.style.display = this._config.status_entity ? 'inline-block' : 'none';
 
     if (this._emergencySelector) {
       this._emergencySelector.hass = this._hass;
       this._emergencySelector.value = this._config.emergency_entity || '';
     }
+    const clearEmergency = this.querySelector("#clear-emergency");
+    if (clearEmergency) clearEmergency.style.display = this._config.emergency_entity ? 'inline-block' : 'none';
 
     if (this._airAlertSelector) {
       this._airAlertSelector.hass = this._hass;
       this._airAlertSelector.value = this._config.air_alert_entity || '';
     }
+    const clearAirAlert = this.querySelector("#clear-air-alert");
+    if (clearAirAlert) clearAirAlert.style.display = this._config.air_alert_entity ? 'inline-block' : 'none';
 
     const ps = this.querySelector("#priority-switch");
     if (ps) ps.checked = this._config.use_status_entity || false;
@@ -453,6 +472,8 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector.hass = this._hass;
       this._scheduleSelector.value = this._config.schedule_entity || '';
     }
+    const clearSchedule = this.querySelector("#clear-schedule");
+    if (clearSchedule) clearSchedule.style.display = this._config.schedule_entity ? 'inline-block' : 'none';
 
     const v1Val = this._config.voltage_entity || this._config.phase1_entity || '';
     if (this._voltage1Selector) {
@@ -486,6 +507,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const aaas = this.querySelector("#air-alert-animation-switch");
     if (aaas) aaas.checked = this._config.air_alert_animation !== false;
+
+    const ems = this.querySelector("#emergency-switch");
+    if (ems) ems.checked = this._config.show_emergency !== false;
   }
 
   _valueChanged(ev) {
@@ -495,8 +519,14 @@ class SvitloLiveCardEditor extends HTMLElement {
     const newConfig = { ...this._config };
     if (target.value === undefined || target.value === null || target.value === '') {
       delete newConfig[target.configValue];
+      if (target.configValue === 'emergency_entity') {
+        newConfig.show_emergency = false;
+      }
     } else {
       newConfig[target.configValue] = target.value;
+      if (target.configValue === 'emergency_entity') {
+        newConfig.show_emergency = true;
+      }
     }
     this._config = newConfig;
     this._updateProperties();
@@ -515,7 +545,7 @@ class SvitloLiveCard extends HTMLElement {
   _isStateOff(s) {
     if (!s) return false;
     const val = String(s).toLowerCase();
-    return ['off', 'grid off', 'grid-off', 'unavailable', '0', 'false'].includes(val);
+    return ['off', 'grid off', 'grid-off', 'unavailable', 'недоступний', 'недоступно', '0', 'false'].includes(val);
   }
 
   _isStateUnknown(s) {
@@ -704,8 +734,12 @@ class SvitloLiveCard extends HTMLElement {
   async _fetchHistoryFromEntity(hass) {
     if (!this.config || !this.config.show_actual_history) return;
 
-    let entityId = this.config.status_entity || this.config.entity;
-    if (!entityId) return;
+    let entityId = this.config.status_entity || this.config.voltage_entity || this.config.phase1_entity || this.config.voltage_entity_l1;
+    if (!entityId) {
+      this._actualOutages = null;
+      this._unknownIntervals = null;
+      return;
+    }
 
     const now = Date.now();
     if (this._lastHistoryFetch && (now - this._lastHistoryFetch < 60000)) return;
@@ -724,6 +758,11 @@ class SvitloLiveCard extends HTMLElement {
       );
 
       const rawHistory = (response && response[0]) ? response[0] : [];
+      if (!rawHistory || rawHistory.length === 0) {
+        this._actualOutages = null;
+        this._unknownIntervals = null;
+        return;
+      }
 
       const intervals = [];
       let currentStart = null;
@@ -731,7 +770,9 @@ class SvitloLiveCard extends HTMLElement {
 
       rawHistory.forEach((hItem) => {
         let itemState = 'on';
-        if (this._isStateOff(hItem.state)) itemState = 'off';
+        const numVal = parseFloat(hItem.state);
+        if (!isNaN(numVal) && numVal < 40) itemState = 'off';
+        else if (this._isStateOff(hItem.state)) itemState = 'off';
         else if (this._isStateUnknown(hItem.state)) itemState = 'unknown';
 
         if (this.config && this.config.invert_status_entity && itemState !== 'unknown') {
@@ -800,19 +841,22 @@ class SvitloLiveCard extends HTMLElement {
         }
       }
 
-      this._actualOutages = mergedIntervals
+      const offList = mergedIntervals
         .filter(i => i.state === 'off')
         .map(i => ({
           start: { dateTime: new Date(i.start).toISOString() },
           end: { dateTime: new Date(i.end).toISOString() }
         }));
 
-      this._unknownIntervals = mergedIntervals
+      const unkList = mergedIntervals
         .filter(i => i.state === 'unknown')
         .map(i => ({
           start: { dateTime: new Date(i.start).toISOString() },
           end: { dateTime: new Date(i.end).toISOString() }
         }));
+
+      this._actualOutages = offList.length > 0 ? offList : null;
+      this._unknownIntervals = unkList.length > 0 ? unkList : null;
 
       this._renderWithCurrentDay(hass);
 
@@ -871,6 +915,9 @@ class SvitloLiveCard extends HTMLElement {
     const tomorrowSch = tomorrowData;
     const hasTomorrow = tomorrowSch.length === 48;
     const isDynamic = config.dynamic_timeline && hasTomorrow;
+    if (!hasTomorrow && this._selectedDay === 'tomorrow') {
+      this._selectedDay = 'today';
+    }
     const isToday = this._selectedDay === 'today';
 
     const daySwitcher = this.querySelector('#day-switcher');
@@ -997,7 +1044,7 @@ class SvitloLiveCard extends HTMLElement {
         const unit = stateObj.attributes?.unit_of_measurement || 'В';
         if (isNaN(num)) {
           const isOff = this._isStateOff(raw);
-          return { ...p, value: null, text: String(raw), valRound: String(raw), unit, isOff, raw };
+          return { ...p, value: isOff ? 0 : null, text: isOff ? `0 ${unit}` : String(raw), valRound: isOff ? 0 : '—', unit, isOff, raw };
         }
         const isOff = num < 40 || this._isStateOff(raw);
         const valRound = Math.round(num);
@@ -1064,12 +1111,15 @@ class SvitloLiveCard extends HTMLElement {
         statusEl.style.cursor = 'pointer';
         statusEl.onclick = () => openMoreInfo(p1.id);
 
-        if (p1.valRound !== undefined && p1.valRound !== '—') {
+        if (p1.isOff) {
+          statusEl.innerText = (p1.value !== null && p1.value > 0) ? `⚡ ${p1.valRound} ${p1.unit || 'В'}` : 'СВІТЛА НЕМА';
+          statusEl.style.background = COLOR_OFF;
+        } else if (p1.valRound !== undefined && p1.valRound !== '—' && !isNaN(parseFloat(p1.valRound))) {
           statusEl.innerText = `⚡ ${p1.valRound} ${p1.unit || 'В'}`;
-          statusEl.style.background = p1.isOff ? COLOR_OFF : COLOR_ON;
-        } else if (p1.text && p1.text !== '—') {
+          statusEl.style.background = COLOR_ON;
+        } else if (p1.text && p1.text !== '—' && !this._isStateUnknown(p1.text) && !this._isStateOff(p1.text)) {
           statusEl.innerText = `⚡ ${p1.text}`;
-          statusEl.style.background = p1.isOff ? COLOR_OFF : COLOR_ON;
+          statusEl.style.background = COLOR_ON;
         } else {
           statusEl.innerText = isOffCurrent ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО';
           statusEl.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
@@ -1087,9 +1137,14 @@ class SvitloLiveCard extends HTMLElement {
               const isPhaseOff = p.isOff;
               const isUnknown = p.value === null && p.text === '—';
               const bg = isUnknown ? (config.color_unknown || '#444444') : (isPhaseOff ? COLOR_OFF : COLOR_ON);
-              const valDisplay = p.valRound !== undefined && p.valRound !== '—' ? `${p.valRound}В` : p.text;
+              const valDisplay = (p.valRound !== undefined && p.valRound !== '—' && !isNaN(parseFloat(p.valRound)))
+                ? `${p.valRound}В`
+                : (isPhaseOff ? '0В' : p.text);
+              const pillTitle = isPhaseOff
+                ? (p.value !== null && p.value > 0 ? `${p.name}: ${p.valRound} ${p.unit || 'В'}` : `${p.name}: Світла нема`)
+                : `${p.name}: ${p.text}`;
               return `
-                <div class="phase-pill" data-entity-id="${p.id}" title="${p.name}: ${p.text}" style="
+                <div class="phase-pill" data-entity-id="${p.id}" title="${pillTitle}" style="
                   display: inline-flex;
                   align-items: center;
                   gap: 3px;
@@ -1124,12 +1179,14 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     let isEmergency = false;
-    if (config.emergency_entity) {
-      const emState = hass.states[config.emergency_entity];
-      if (emState && (emState.state === 'on' || emState.state === 'true')) isEmergency = true;
-    } else if (attrs.region && attrs.queue) {
-      const emEid = Object.keys(hass.states).find(eid => eid.includes('emergency') && hass.states[eid].attributes?.region === attrs.region && hass.states[eid].attributes?.queue === attrs.queue);
-      if (emEid && hass.states[emEid].state === 'on') isEmergency = true;
+    if (config.show_emergency !== false) {
+      if (config.emergency_entity && config.emergency_entity !== 'none') {
+        const emState = hass.states[config.emergency_entity];
+        if (emState && (emState.state === 'on' || emState.state === 'true')) isEmergency = true;
+      } else if (!('emergency_entity' in config) && attrs.region && attrs.queue) {
+        const emEid = Object.keys(hass.states).find(eid => eid.includes('emergency') && hass.states[eid].attributes?.region === attrs.region && hass.states[eid].attributes?.queue === attrs.queue);
+        if (emEid && hass.states[emEid].state === 'on') isEmergency = true;
+      }
     }
     if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
@@ -1248,15 +1305,17 @@ class SvitloLiveCard extends HTMLElement {
       changeSlotIdx = currentIdx + diffSlots;
     }
 
+    const hasActualHistory = showActualHistory && config.show_actual_history && Boolean((this._actualOutages && this._actualOutages.length > 0) || (this._unknownIntervals && this._unknownIntervals.length > 0));
+
     const effectiveSchedule = schedule.map((state, i) => {
       const absIdx = startOffsetIdx + i;
       const isPast = absIdx < currentIdx;
 
-      if (isPast && isToday && config.show_actual_history && showActualHistory) {
+      if (isPast && isToday && hasActualHistory) {
         const slotStartMs = toLocalDisplay(absIdx).date.getTime();
         const slotEndMs = slotStartMs + 1800000;
 
-        if (this._unknownIntervals) {
+        if (this._unknownIntervals && this._unknownIntervals.length > 0) {
           let uOverlap = 0;
           for (const ev of this._unknownIntervals) {
             const s = new Date(ev.start.dateTime || ev.start.date).getTime();
@@ -1268,16 +1327,17 @@ class SvitloLiveCard extends HTMLElement {
           if (uOverlap > 0) return 'unknown';
         }
 
-        if (!this._actualOutages) return 'on';
-        let overlap = 0;
-        for (const ev of this._actualOutages) {
-          const s = new Date(ev.start.dateTime || ev.start.date).getTime();
-          const e = new Date(ev.end.dateTime || ev.end.date).getTime();
-          const oS = Math.max(s, slotStartMs);
-          const oE = Math.min(e, slotEndMs);
-          if (oE > oS) overlap += (oE - oS);
+        if (this._actualOutages && this._actualOutages.length > 0) {
+          let overlap = 0;
+          for (const ev of this._actualOutages) {
+            const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+            const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+            const oS = Math.max(s, slotStartMs);
+            const oE = Math.min(e, slotEndMs);
+            if (oE > oS) overlap += (oE - oS);
+          }
+          return (overlap > 0) ? 'off' : 'on';
         }
-        return (overlap > 0) ? 'off' : 'on';
       }
       return state || 'unknown';
     });
@@ -1366,8 +1426,8 @@ class SvitloLiveCard extends HTMLElement {
         const isActualChangeHere = (rulerChangeTime && changeSlotIdx === absIdx && config.use_status_entity);
         const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
         if (showPlanLabel) {
-          // Якщо ввімкнено фактичні відключення - не рахуємо планові мітки для минулого
-          if (config.show_actual_history && showActualHistory && absIdx <= currentIdx && isToday) continue;
+          // Якщо ввімкнено фактичні відключення і є дані - не рахуємо планові мітки для минулого
+          if (hasActualHistory && absIdx <= currentIdx && isToday) continue;
           plannedLabelCount++;
         }
       }
@@ -1379,7 +1439,7 @@ class SvitloLiveCard extends HTMLElement {
       // Обчислюємо позицію пріоритетної мітки (якщо є) - ПЕРЕД вибором режиму
       // ВАЖЛИВО: тільки якщо використовуються фактичні відключення (use_status_entity + show_actual_history)
       let priorityLabelPos = null;
-      if (rulerChangeTime && config.use_status_entity && config.show_actual_history) {
+      if (rulerChangeTime && config.use_status_entity && hasActualHistory) {
         priorityLabelPos = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
       }
 
@@ -1663,7 +1723,7 @@ class SvitloLiveCard extends HTMLElement {
         }
       };
 
-      if (showActualHistory && this._actualOutages && isToday) {
+      if (hasActualHistory && this._actualOutages && isToday) {
         const tStartMs = toLocalDisplay(startOffsetIdx).date.getTime();
         const tTotalMs = totalSlots * 1800000;
         const cutoffMs = rulerChangeTime ? rulerChangeTime.getTime() : new Date().getTime();
@@ -1676,7 +1736,7 @@ class SvitloLiveCard extends HTMLElement {
         });
       }
 
-      if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity && (config.show_actual_history && showActualHistory)) {
+      if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity && hasActualHistory) {
         const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
         if (p >= 0 && p <= 100) addLabel(formatTime(rulerChangeTime), p, 'normal', true);
       }
@@ -1702,7 +1762,7 @@ class SvitloLiveCard extends HTMLElement {
         if (state === 'off') bg = COLOR_OFF;
         else if (state === 'unknown') bg = COLOR_UNKNOWN;
 
-        const isHistoryMode = (config.show_actual_history) && isPast && isToday;
+        const isHistoryMode = hasActualHistory && isPast && isToday;
 
         if (isHistoryMode) {
           const slotStartMs = toLocalDisplay(absIdx).date.getTime();
@@ -1798,7 +1858,7 @@ class SvitloLiveCard extends HTMLElement {
           b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
         }
 
-        if (absIdx === currentIdx && isToday && config.show_actual_history && showActualHistory && !isUnknownCurrent) {
+        if (absIdx === currentIdx && isToday && hasActualHistory && !isUnknownCurrent) {
           const now = new Date();
           const slotStartMs = toLocalDisplay(absIdx).date.getTime();
           const slotDuration = 1800000;
@@ -1848,8 +1908,8 @@ class SvitloLiveCard extends HTMLElement {
           const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
 
           if (showPlanLabel) {
-            // Якщо ввімкнено фактичні відключення - не показуємо планові мітки для минулого
-            if (config.show_actual_history && showActualHistory && absIdx <= currentIdx && isToday) return;
+            // Якщо ввімкнено фактичні відключення і є дані - не показуємо планові мітки для минулого
+            if (hasActualHistory && absIdx <= currentIdx && isToday) return;
 
             const pos = (i / totalSlots) * 100;
             const newLabel = addLabel(slotInfo.time, pos, 'normal', false);
@@ -1914,7 +1974,7 @@ class SvitloLiveCard extends HTMLElement {
         if (type === 'hours_without_light') {
           let offMins = 0;
 
-          if (config.show_actual_history && showActualHistory && isToday) {
+          if (hasActualHistory && isToday) {
             effectiveSchedule.forEach((s, i) => {
               const absIdx = startOffsetIdx + i;
               const isPast = absIdx < currentIdx;
