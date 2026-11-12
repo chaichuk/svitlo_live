@@ -1,4 +1,4 @@
-console.info('%c SVITLO-LIVE-CARD %c v2.9.9 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
+console.info('%c SVITLO-LIVE-CARD %c v2.9.10 ', 'color: white; background: #0288d1; font-weight: 700;', 'color: #0288d1; background: white; font-weight: 700;');
 // Svitlo Live Card Editor
 class SvitloLiveCardEditor extends HTMLElement {
   setConfig(config) {
@@ -725,8 +725,13 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     this._hass = hass;
-    if (this.config && this.config.show_actual_history) {
+    if (this.config && this.config.show_actual_history && this.config.status_entity) {
       this._fetchHistoryFromEntity(hass);
+    } else {
+      this._actualOutages = null;
+      this._unknownIntervals = null;
+      this._lastHistoryFetch = null;
+      this._lastHistoryEntity = null;
     }
     this._renderWithCurrentDay(hass);
   }
@@ -734,16 +739,27 @@ class SvitloLiveCard extends HTMLElement {
   async _fetchHistoryFromEntity(hass) {
     if (!this.config || !this.config.show_actual_history) return;
 
-    let entityId = this.config.status_entity || this.config.voltage_entity || this.config.phase1_entity || this.config.voltage_entity_l1;
+    let entityId = this.config.status_entity;
     if (!entityId) {
       this._actualOutages = null;
       this._unknownIntervals = null;
+      this._lastHistoryFetch = null;
+      this._lastHistoryEntity = null;
       return;
+    }
+
+    const currentInvert = Boolean(this.config.invert_status_entity);
+    if (this._lastHistoryEntity !== entityId || this._lastHistoryInvert !== currentInvert) {
+      this._lastHistoryFetch = null;
+      this._actualOutages = null;
+      this._unknownIntervals = null;
     }
 
     const now = Date.now();
     if (this._lastHistoryFetch && (now - this._lastHistoryFetch < 60000)) return;
     this._lastHistoryFetch = now;
+    this._lastHistoryEntity = entityId;
+    this._lastHistoryInvert = currentInvert;
 
     const startRange = new Date(now - 24 * 60 * 60 * 1000);
     const endRange = new Date(now);
@@ -794,7 +810,7 @@ class SvitloLiveCard extends HTMLElement {
       });
 
       if (currentStart !== null) {
-        intervals.push({ state: currentState, start: currentStart, end: Date.now() });
+        intervals.push({ state: currentState, start: currentStart, end: Date.now(), ongoing: true });
       }
 
       // Фільтрація коротких переключень (<15 хв)
@@ -836,6 +852,7 @@ class SvitloLiveCard extends HTMLElement {
 
         if (last.state === current.state) {
           last.end = current.end;
+          if (current.ongoing) last.ongoing = true;
         } else {
           mergedIntervals.push(current);
         }
@@ -845,7 +862,8 @@ class SvitloLiveCard extends HTMLElement {
         .filter(i => i.state === 'off')
         .map(i => ({
           start: { dateTime: new Date(i.start).toISOString() },
-          end: { dateTime: new Date(i.end).toISOString() }
+          end: { dateTime: new Date(i.end).toISOString() },
+          ongoing: Boolean(i.ongoing)
         }));
 
       const unkList = mergedIntervals
@@ -891,6 +909,7 @@ class SvitloLiveCard extends HTMLElement {
     const showStats = config.show_stats !== false;
     const showActualHistory = config.show_actual_history === true;
     const customStatusEntity = config.status_entity ? hass.states[config.status_entity] : null;
+    const useCustomStatus = Boolean(config.use_status_entity && customStatusEntity);
 
     const kTime = this._getKyivTime();
     const currentIdx = kTime.h * 2 + (kTime.m >= 30 ? 1 : 0);
@@ -915,7 +934,7 @@ class SvitloLiveCard extends HTMLElement {
     const tomorrowSch = tomorrowData;
     const hasTomorrow = tomorrowSch.length === 48;
     const isDynamic = config.dynamic_timeline && hasTomorrow;
-    if (!hasTomorrow && this._selectedDay === 'tomorrow') {
+    if ((!hasTomorrow || isDynamic) && this._selectedDay === 'tomorrow') {
       this._selectedDay = 'today';
     }
     const isToday = this._selectedDay === 'today';
@@ -999,7 +1018,7 @@ class SvitloLiveCard extends HTMLElement {
       else statsEl.style.display = 'none';
     }
 
-    if (customStatusEntity && config.use_status_entity) {
+    if (useCustomStatus) {
       const cs = customStatusEntity.state;
       if (this._isStateOff(cs)) {
         isOffCurrent = true;
@@ -1210,7 +1229,7 @@ class SvitloLiveCard extends HTMLElement {
 
     let rulerChangeTime = null;
 
-    if (config.use_status_entity && !isOffCurrent && !isUnknownCurrent && this._actualOutages) {
+    if (useCustomStatus && !isOffCurrent && !isUnknownCurrent && this._actualOutages && showActualHistory) {
       const nowMs = new Date().getTime();
       let lastOutageEnd = null;
       this._actualOutages.forEach(ev => {
@@ -1228,7 +1247,7 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     if (!rulerChangeTime) {
-      if (config.use_status_entity && customStatusEntity && !isUnknownCurrent) {
+      if (useCustomStatus && !isUnknownCurrent) {
         const nowMs = new Date().getTime();
         const allIntervals = [...(this._actualOutages || []), ...(this._unknownIntervals || [])];
 
@@ -1305,7 +1324,7 @@ class SvitloLiveCard extends HTMLElement {
       changeSlotIdx = currentIdx + diffSlots;
     }
 
-    const hasActualHistory = showActualHistory && config.show_actual_history && Boolean((this._actualOutages && this._actualOutages.length > 0) || (this._unknownIntervals && this._unknownIntervals.length > 0));
+    const hasActualHistory = showActualHistory && Boolean(config.status_entity) && Boolean((this._actualOutages && this._actualOutages.length > 0) || (this._unknownIntervals && this._unknownIntervals.length > 0));
 
     const effectiveSchedule = schedule.map((state, i) => {
       const absIdx = startOffsetIdx + i;
@@ -1338,6 +1357,7 @@ class SvitloLiveCard extends HTMLElement {
           }
           return (overlap > 0) ? 'off' : 'on';
         }
+        return 'on';
       }
       return state || 'unknown';
     });
@@ -1368,7 +1388,7 @@ class SvitloLiveCard extends HTMLElement {
 
     let histories = isToday ? todayHistory : tomorrowHistory;
 
-    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
+    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}_${hasActualHistory}_${useCustomStatus}_${Boolean(config.show_history)}_${config.color_on || ''}_${config.color_off || ''}_${config.color_unknown || ''}_${JSON.stringify(this._actualOutages || null)}_${JSON.stringify(this._unknownIntervals || null)}`;
 
     if (timelineEl && this._lastRenderedKey !== scheduleKey) {
       this._lastRenderedKey = scheduleKey;
@@ -1415,6 +1435,9 @@ class SvitloLiveCard extends HTMLElement {
         }
       }
 
+      const totalSlots = effectiveSchedule.length;
+      const showPriorityRulerChange = Boolean(rulerChangeTime && changeSlotIdx >= 0 && useCustomStatus && hasActualHistory && isToday);
+
       // КРОК 1: Спочатку порахуємо скільки буде планових міток
       let plannedLabelCount = 0;
       for (let i = 1; i < effectiveSchedule.length; i++) {
@@ -1423,7 +1446,7 @@ class SvitloLiveCard extends HTMLElement {
         const isEffChange = effectiveSchedule[i] !== effectiveSchedule[i - 1];
         const currPlan = schedule[i];
         const currEff = effectiveSchedule[i];
-        const isActualChangeHere = (rulerChangeTime && changeSlotIdx === absIdx && config.use_status_entity);
+        const isActualChangeHere = (showPriorityRulerChange && changeSlotIdx === absIdx);
         const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
         if (showPlanLabel) {
           // Якщо ввімкнено фактичні відключення і є дані - не рахуємо планові мітки для минулого
@@ -1432,15 +1455,15 @@ class SvitloLiveCard extends HTMLElement {
         }
       }
 
-      const totalSlots = effectiveSchedule.length;
       const occupiedPositions = [];
       let labelCounter = 0;
 
       // Обчислюємо позицію пріоритетної мітки (якщо є) - ПЕРЕД вибором режиму
       // ВАЖЛИВО: тільки якщо використовуються фактичні відключення (use_status_entity + show_actual_history)
       let priorityLabelPos = null;
-      if (rulerChangeTime && config.use_status_entity && hasActualHistory) {
-        priorityLabelPos = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
+      if (showPriorityRulerChange) {
+        const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
+        if (p >= 0 && p <= 100) priorityLabelPos = p;
       }
 
       // Вибір режиму:
@@ -1726,17 +1749,17 @@ class SvitloLiveCard extends HTMLElement {
       if (hasActualHistory && this._actualOutages && isToday) {
         const tStartMs = toLocalDisplay(startOffsetIdx).date.getTime();
         const tTotalMs = totalSlots * 1800000;
-        const cutoffMs = rulerChangeTime ? rulerChangeTime.getTime() : new Date().getTime();
+        const cutoffMs = showPriorityRulerChange ? rulerChangeTime.getTime() : new Date().getTime();
         this._actualOutages.forEach(ev => {
           const s = new Date(ev.start.dateTime || ev.start.date);
           const e = new Date(ev.end.dateTime || ev.end.date);
           if (s.getTime() >= cutoffMs) return;
           if (s.getTime() > tStartMs) addLabel(formatTime(s), ((s.getTime() - tStartMs) / tTotalMs) * 100, 'normal', true);
-          if (e.getTime() > tStartMs && e.getTime() < cutoffMs) addLabel(formatTime(e), ((e.getTime() - tStartMs) / tTotalMs) * 100, 'normal', true);
+          if (!ev.ongoing && e.getTime() > tStartMs && e.getTime() < cutoffMs) addLabel(formatTime(e), ((e.getTime() - tStartMs) / tTotalMs) * 100, 'normal', true);
         });
       }
 
-      if (rulerChangeTime && changeSlotIdx >= 0 && config.use_status_entity && hasActualHistory) {
+      if (showPriorityRulerChange) {
         const p = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
         if (p >= 0 && p <= 100) addLabel(formatTime(rulerChangeTime), p, 'normal', true);
       }
@@ -1903,7 +1926,7 @@ class SvitloLiveCard extends HTMLElement {
           const currPlan = schedule[i];
           const currEff = effectiveSchedule[i];
 
-          const isActualChangeHere = (rulerChangeTime && changeSlotIdx === absIdx && config.use_status_entity);
+          const isActualChangeHere = (showPriorityRulerChange && changeSlotIdx === absIdx);
 
           const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
 
@@ -2008,6 +2031,20 @@ class SvitloLiveCard extends HTMLElement {
 
   setConfig(config) {
     this.config = config;
+    if (!config || !config.show_actual_history || !config.status_entity) {
+      this._actualOutages = null;
+      this._unknownIntervals = null;
+      this._lastHistoryFetch = null;
+      this._lastHistoryEntity = null;
+    } else if (
+      this._hass &&
+      (this._lastHistoryEntity !== config.status_entity ||
+        this._lastHistoryInvert !== Boolean(config.invert_status_entity) ||
+        !this._lastHistoryFetch)
+    ) {
+      this._lastHistoryFetch = null;
+      this._fetchHistoryFromEntity(this._hass);
+    }
     if (this._hass && this.content) {
       this._renderWithCurrentDay(this._hass);
     }
