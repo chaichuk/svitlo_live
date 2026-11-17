@@ -138,7 +138,7 @@ async def _async_cleanup_legacy_items(hass: HomeAssistant, entry: ConfigEntry) -
     _LOGGER.debug("Cleanup started. Keeping items for: %s", expected_unique_part)
 
     # --- 2. Очищення СУТНОСТЕЙ (Entities) ---
-    entities = ent_reg.entities.get_entries_for_config_entry_id(entry.entry_id)
+    entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
     for entity in entities:
         # Якщо в unique_id сутності немає поточної черги -> видаляємо
         if expected_unique_part not in entity.unique_id:
@@ -146,7 +146,7 @@ async def _async_cleanup_legacy_items(hass: HomeAssistant, entry: ConfigEntry) -
             ent_reg.async_remove(entity.entity_id)
 
     # --- 3. Очищення ПРИСТРОЇВ (Devices) ---
-    devices = dev_reg.devices.get_devices_for_config_entry_id(entry.entry_id)
+    devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
     for device in devices:
         # Перевіряємо ідентифікатори пристрою
         # device.identifiers виглядає як {('svitlo_live', 'kyiv_3.1')}
