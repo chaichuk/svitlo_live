@@ -1,3 +1,9 @@
+> [!TIP]
+> **Швидкий спосіб (без DevTools):** дізнатися свою чергу за адресою можна на нашій сторінці —
+> [![Знайти свою чергу](https://img.shields.io/badge/⚡_Знайти_свою_чергу_(Київ_%2F_Дніпро)-f59e0b?style=for-the-badge)](https://svitlo-queue-finder.svitlo-proxy.workers.dev)
+
+### Ручний спосіб через браузер
+
 1. Відкрийте сайт YASNO для вашого регіону:
    - **Київ:** https://static.yasno.ua/kyiv/outages
    - **Дніпро та Дніпропетровська область (ДТЕК ДнЕМ):** https://static.yasno.ua/dnipro/outages

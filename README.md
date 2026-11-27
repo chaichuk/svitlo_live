@@ -3,6 +3,8 @@
 
 [ІНСТРУКЦІЯ З НАЛАШТУВАННЯ СПОВІЩЕНЬ ЗМІНИ ГРАФІКУ](https://github.com/chaichuk/svitlo_live/blob/main/blueprint_manual.uk.md)
 
+[![Find Your Queue](https://img.shields.io/badge/⚡_Find_Your_Queue_(Kyiv_%2F_Dnipro)-f59e0b?style=for-the-badge)](https://svitlo-queue-finder.svitlo-proxy.workers.dev)
+
 # ❗❗❗
 
 ### The number of users and requests to API which is hosting schedules is constantly growing. I maintain this project personally in my free time. However, the free server is reaching its limits, so I need to upgrade to a paid version. While the costs are manageable and I can cover them myself, I’ve opened a donation jar. If you would like to support the project and ensure its stability, you can do so by clicking the jar image ⬇ 
