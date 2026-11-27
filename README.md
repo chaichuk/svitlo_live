@@ -16,6 +16,9 @@ An integration for **Home Assistant** that displays the current electricity supp
 **Version 2.8.6** allows changing settings via UI (with optional preserving old IDs), supports almost all regions via a new unified reliable API, and automatically cleans up old entities.
 
 ---
+## Install
+[![Add to HACS via My Home Assistant][hacs-install-image]][hasc-install-url]
+---
 
 ## ⚙️ Main Features
 
@@ -136,3 +139,7 @@ You don't need to reinstall the integration to change your queue!
 
 MIT License © 2025  
 Open-source, with no API keys or personal data exposed.
+
+<!-- References -->
+[hasc-install-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=chaichuk&repository=svitlo_live&category=integration
+[hacs-install-image]: https://my.home-assistant.io/badges/hacs_repository.svg
