@@ -106,16 +106,10 @@ class SvitloApiHub:
                     "queues": _sort_queues(old_queues)
                 }
             else:
-                # If already in merged_regions, ensure any missing queues from Old API are merged
+                # Fallback to Old API queues only if New API returned no queues
                 existing_queues = merged_regions[target_id].get("queues", [])
                 if not existing_queues:
                     merged_regions[target_id]["queues"] = _sort_queues(old_queues)
-                else:
-                    combined = list(existing_queues)
-                    for q in old_queues:
-                        if q not in combined:
-                            combined.append(q)
-                    merged_regions[target_id]["queues"] = _sort_queues(combined)
 
         return sorted(merged_regions.values(), key=lambda x: x["name"])
 

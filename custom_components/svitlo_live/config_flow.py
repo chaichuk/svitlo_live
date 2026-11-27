@@ -188,7 +188,12 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
         schema = {}
         
         if queue_options:
-            schema[vol.Required(CONF_QUEUE, default=current_queue)] = selector({
+            queue_field = (
+                vol.Required(CONF_QUEUE, default=current_queue)
+                if current_queue in queues
+                else vol.Required(CONF_QUEUE)
+            )
+            schema[queue_field] = selector({
                 "select": {"options": queue_options, "mode": "dropdown"}
             })
             # Add preserve ID checkbox
