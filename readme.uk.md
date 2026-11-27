@@ -18,6 +18,9 @@
 Це **нова версія (v2.8.6)**, яка дозволяє змінювати налаштування через інтерфейс (UI) з опцією збереження старих entities IDs, підтримує майже всі регіони через єдиний надійний API та автоматично очищує старі сутності.
 
 ---
+## Встановити
+[![Add to HACS via My Home Assistant][hacs-install-image]][hasc-install-url]
+---
 
 ## ⚙️ Основні можливості
 
@@ -150,3 +153,7 @@
 
 MIT License © 2025  
 Відкритий код, без прихованих ключів чи збору персональних даних.
+
+<!-- References -->
+[hasc-install-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=chaichuk&repository=svitlo_live&category=integration
+[hacs-install-image]: https://my.home-assistant.io/badges/hacs_repository.svg
